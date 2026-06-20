@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.local
+dist/
+*.log
+.DS_Store
+.cache/
+# build + generated
+.output/
+.nitro/
+.tanstack/
+.vite/
+src/routeTree.gen.ts
