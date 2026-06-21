@@ -19,7 +19,7 @@ CACHE_DIR = ROOT / ".cache"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
-WORKHORSE_MODEL = os.getenv("WORKHORSE_MODEL", "google/gemini-2.5-flash")
+WORKHORSE_MODEL = os.getenv("WORKHORSE_MODEL", "google/gemini-3.5-flash")
 PREMIUM_MODEL = os.getenv("PREMIUM_MODEL", "anthropic/claude-sonnet-4.6")
 
 # SQLite store for the server-side watchlist / positions.
