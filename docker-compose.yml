@@ -1,0 +1,30 @@
+# Runs the whole stack — SSR web app + Python optimizer sidecar — together.
+#   docker compose up --build   →   open http://localhost:3001
+# Host port is 3001 (not 3000): OrbStack auto-HTTP-proxies port 3000 and injects
+# forwarding headers that trip the SSR host check; 3001 is raw-forwarded.
+# For day-to-day development prefer `pnpm dev` (HMR, port 3000) + the sidecar
+# alone (`cd sidecar && docker compose up`); this file runs it as deployed.
+services:
+  web:
+    build: .
+    ports:
+      - "3001:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORTFOLIO_SIDECAR_URL: http://sidecar:8000
+    volumes:
+      - web-cache:/app/.cache
+    depends_on:
+      - sidecar
+    restart: unless-stopped
+
+  sidecar:
+    build: ./sidecar
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+volumes:
+  web-cache:

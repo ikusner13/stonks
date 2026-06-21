@@ -11,3 +11,10 @@ dist/
 .tanstack/
 .vite/
 src/routeTree.gen.ts
+
+# Python (sidecar)
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.pytest_cache/

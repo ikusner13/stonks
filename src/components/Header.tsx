@@ -26,6 +26,13 @@ export default function Header() {
           >
             Watchlist
           </Link>
+          <Link
+            to="/portfolio"
+            className="nav-link"
+            activeProps={{ className: 'nav-link is-active' }}
+          >
+            Portfolio
+          </Link>
         </div>
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
