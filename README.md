@@ -15,6 +15,16 @@ optimization (all in one process — no sidecar).
   invented numbers; a cached ground-truth prefix keeps the critic chain cheap.
 - **Portfolio** — mean-variance optimization (max-Sharpe / min-risk) over
   historical returns, with an efficient frontier and current-vs-optimal compare.
+- **Portfolio Health & Trade Decision Support** — a beginner-friendly section on
+  the Portfolio page that adds *concentration risk* (% in top 1 / 3 / 5 holdings
+  with a plain-language diversification note), *hidden concentration* (pairwise
+  return correlation flags holdings that move together, so ten lockstep names
+  aren't mistaken for real diversification), *allocation drift signals* (which
+  positions sit >5% above/below the optimizer's target, with "trim X / add to Y"
+  prompts), and *position-sizing guidance* (a conservative size range scaled by a
+  research report's confidence, shown as % of portfolio and ≈ dollars). All of it
+  is deterministic, grounded in existing data, and clearly labeled decision
+  support — never advice, and no order placement.
 - **Watchlist** — server-side (SQLite); positions prefill the portfolio page.
 
 ## Setup
@@ -59,7 +69,7 @@ docker build -t stocks . && docker run -p 8000:8000 --env-file .env stocks
 app/
   data/        market data (yfinance quotes/fundamentals/news, Finnhub, screener)
   llm/         Pydantic AI pipelines: research, critic, discovery, usage tracking
-  portfolio/   skfolio mean-variance optimizer (folded-in former sidecar)
+  portfolio/   skfolio optimizer, holdings valuation, performance, decision_support
   web/         FastAPI app, Jinja2 templates, HTMX partials, static assets
   cache.py     file-based read-through KV (data + report caches)
   db.py        SQLite watchlist store

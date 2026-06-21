@@ -44,7 +44,24 @@
     <p id="holdings-spin" class="htmx-indicator mt-3 text-sm text-[var(--sea-ink-soft)]">Fetching prices…</p>
   </section>
 
-  {# ── B) Performance ───────────────────────────────────────────────────────── #}
+  {# ── B) Portfolio Health & Trade Decision Support ────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="mb-1 text-lg font-semibold">Portfolio Health</h2>
+    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">A plain-language read on how concentrated your portfolio is, to help you weigh your next manual trade. Decision support, not advice.</p>
+    {% include "partials/portfolio_health.html" %}
+
+    {# Correlation / hidden-concentration — lazily loaded; needs price history. #}
+    <div class="mt-5">
+      <h3 class="mb-2 text-sm font-semibold">Do your holdings move together?</h3>
+      <div hx-get="/portfolio/correlation" hx-trigger="load" hx-swap="innerHTML">
+        <p class="text-sm text-[var(--sea-ink-soft)]">Checking how your holdings correlate…</p>
+      </div>
+    </div>
+
+    <p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ ds_disclaimer }}</p>
+  </section>
+
+  {# ── C) Performance ───────────────────────────────────────────────────────── #}
   <section class="mb-10">
     <h2 class="mb-4 text-lg font-semibold">Performance</h2>
     <div class="rounded-2xl border border-[var(--line)] p-5">
@@ -57,10 +74,10 @@
     </div>
   </section>
 
-  {# ── C) Optimizer ─────────────────────────────────────────────────────────── #}
+  {# ── D) Optimizer & rebalancing signals ──────────────────────────────────── #}
   <section>
-    <h2 class="mb-1 text-lg font-semibold">Optimizer</h2>
-    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Mean-variance allocation seeded from your current holdings — research context, not advice.</p>
+    <h2 class="mb-1 text-lg font-semibold">Optimizer &amp; Rebalancing Signals</h2>
+    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Mean-variance allocation seeded from your current holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>
 
     <form hx-post="/portfolio/optimize" hx-target="#opt-results" hx-indicator="#opt-spin">
       <div id="rows" class="space-y-2">

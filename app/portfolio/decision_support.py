@@ -1,0 +1,372 @@
+"""Decision-support helpers for manual trading: portfolio health, allocation
+drift, and position sizing.
+
+Everything here is deterministic and grounded in data we already have — live
+holdings valuations, the optimizer's current-vs-optimal weights, and a research
+report's stated confidence. No advice, no order placement: these are
+educational signals to help a human make a more informed manual decision.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime
+from itertools import combinations
+
+from pydantic import BaseModel
+
+from ..cache import with_cache
+from ..schemas import Confidence
+from .holdings import PortfolioValuation
+from .optimize import OptimizeResult
+
+DISCLAIMER = (
+    "Decision-support only, not investment advice. These figures are simple "
+    "rules of thumb to help you think about risk — always adjust for your own "
+    "goals, time horizon, and risk tolerance, and make every trade decision "
+    "yourself."
+)
+
+# A position whose live weight differs from the optimizer's target by more than
+# this is flagged as "drifted" and worth a second look.
+DRIFT_THRESHOLD = 0.05
+
+# Two holdings whose daily returns correlate above this are treated as moving
+# "together" — a source of hidden concentration the per-name view can't see.
+HIGH_CORRELATION = 0.80
+
+# Correlation over a multi-year lookback is stable for a trading day; the cache
+# key already pins symbols + lookback + day, so a one-day TTL is plenty.
+CORRELATION_TTL_MS = 24 * 60 * 60_000
+
+
+# --- 1) Portfolio health ----------------------------------------------------
+
+
+class PortfolioHealth(BaseModel):
+    num_holdings: int
+    top1_pct: float  # weight of the single largest holding (fraction 0-1)
+    top3_pct: float
+    top5_pct: float
+    top1_symbol: str | None
+    concentration_level: str  # "low" | "moderate" | "high"
+    diversification_note: str
+
+
+def assess_portfolio_health(valuation: PortfolioValuation) -> PortfolioHealth | None:
+    """Summarize how concentrated the portfolio is, in beginner-friendly terms.
+
+    Returns ``None`` when no holding has a computable weight (e.g. prices
+    unavailable), so the caller can show a graceful fallback.
+    """
+    weighted = [
+        (h.symbol, h.weight) for h in valuation.holdings if h.weight is not None
+    ]
+    if not weighted:
+        return None
+
+    weighted.sort(key=lambda x: x[1], reverse=True)
+    weights = [w for _, w in weighted]
+    n = len(weighted)
+
+    top1 = sum(weights[:1])
+    top3 = sum(weights[:3])
+    top5 = sum(weights[:5])
+
+    # Concentration is judged on both the single largest bet and how few names
+    # carry most of the portfolio. Thresholds are intentionally conservative.
+    if n < 3 or top1 >= 0.40 or top3 >= 0.80:
+        level = "high"
+        note = (
+            f"Your portfolio leans heavily on a few positions — the largest "
+            f"alone is {top1 * 100:.0f}% of the total. A sharp move in one "
+            f"name would swing your whole portfolio. Spreading across more "
+            f"positions, or trimming the biggest, would lower that risk."
+        )
+    elif n < 6 or top1 >= 0.25 or top3 >= 0.60:
+        level = "moderate"
+        note = (
+            f"Reasonably balanced, but somewhat concentrated: your top 3 "
+            f"holdings are {top3 * 100:.0f}% of the portfolio. Worth keeping "
+            f"an eye on the largest positions as they grow."
+        )
+    else:
+        level = "low"
+        note = (
+            f"Nicely spread across {n} positions, with no single holding "
+            f"dominating (largest is {top1 * 100:.0f}%). Lower single-stock "
+            f"risk — though diversification never removes market risk entirely."
+        )
+
+    return PortfolioHealth(
+        num_holdings=n,
+        top1_pct=top1,
+        top3_pct=top3,
+        top5_pct=top5,
+        top1_symbol=weighted[0][0],
+        concentration_level=level,
+        diversification_note=note,
+    )
+
+
+# --- 2) Allocation drift & rebalancing signals ------------------------------
+
+
+class DriftItem(BaseModel):
+    symbol: str
+    current_weight: float  # fraction 0-1
+    target_weight: float
+    drift: float  # current - target (positive = overweight vs target)
+    direction: str  # "over" | "under"
+    significant: bool  # |drift| > DRIFT_THRESHOLD
+    suggestion: str
+
+
+class DriftAnalysis(BaseModel):
+    items: list[DriftItem]
+    significant_count: int
+    threshold_pct: float = DRIFT_THRESHOLD
+
+
+def analyze_drift(result: OptimizeResult) -> DriftAnalysis | None:
+    """Compare live weights against the optimizer's target weights.
+
+    Returns ``None`` if the optimizer had no current allocation to compare
+    against (e.g. holdings carried no value/shares).
+    """
+    if result.current is None:
+        return None
+
+    current = result.current.weights
+    target = result.optimal.weights
+    symbols = sorted(set(current) | set(target))
+
+    items: list[DriftItem] = []
+    for sym in symbols:
+        cur = current.get(sym, 0.0)
+        tgt = target.get(sym, 0.0)
+        drift = cur - tgt
+        direction = "over" if drift >= 0 else "under"
+        significant = abs(drift) > DRIFT_THRESHOLD
+
+        if not significant:
+            suggestion = "Close to target — no action needed."
+        elif direction == "over":
+            suggestion = (
+                f"Overweight by {abs(drift) * 100:.0f} pts. Consider trimming "
+                f"{sym} to move closer to the suggested allocation."
+            )
+        else:
+            suggestion = (
+                f"Underweight by {abs(drift) * 100:.0f} pts. Consider adding "
+                f"to {sym} to move closer to the suggested allocation."
+            )
+
+        items.append(
+            DriftItem(
+                symbol=sym,
+                current_weight=cur,
+                target_weight=tgt,
+                drift=drift,
+                direction=direction,
+                significant=significant,
+                suggestion=suggestion,
+            )
+        )
+
+    # Biggest absolute drift first — that's where attention is best spent.
+    items.sort(key=lambda i: abs(i.drift), reverse=True)
+    significant_count = sum(1 for i in items if i.significant)
+    return DriftAnalysis(items=items, significant_count=significant_count)
+
+
+# --- 3) Position sizing guidance --------------------------------------------
+
+# Conservative size bands as a fraction of total portfolio value, scaled by how
+# much confidence the grounded research report carried. Higher confidence earns
+# a modestly larger band; low confidence stays small. These are rules of thumb,
+# not targets.
+_SIZE_BANDS: dict[Confidence, tuple[float, float]] = {
+    "high": (0.05, 0.10),
+    "medium": (0.03, 0.06),
+    "low": (0.015, 0.03),
+}
+
+
+class PositionSizeGuidance(BaseModel):
+    symbol: str | None
+    confidence: Confidence
+    portfolio_value: float
+    low_pct: float  # fraction of portfolio
+    high_pct: float
+    low_dollars: float
+    high_dollars: float
+    note: str
+
+
+def suggest_position_size(
+    portfolio_value: float,
+    confidence: Confidence,
+    symbol: str | None = None,
+) -> PositionSizeGuidance:
+    """Suggest a starting position-size *range* for a candidate.
+
+    Logic is intentionally simple: take a conservative band of the portfolio,
+    widen it slightly when the research confidence is higher. Shown as both a
+    percentage and an approximate dollar amount.
+    """
+    low_pct, high_pct = _SIZE_BANDS[confidence]
+    note = (
+        f"Based on '{confidence}' research confidence, a starting position of "
+        f"roughly {low_pct * 100:.1f}–{high_pct * 100:.0f}% of your "
+        f"${portfolio_value:,.0f} portfolio is a conservative range to "
+        f"consider. Higher-confidence research earns a slightly larger band; "
+        f"size down if you're unsure. This is guidance, not advice."
+    )
+    if portfolio_value <= 0:
+        note = (
+            "Add holdings so the app knows your portfolio size, then it can "
+            "suggest an approximate dollar range to consider for a new position."
+        )
+
+    return PositionSizeGuidance(
+        symbol=symbol,
+        confidence=confidence,
+        portfolio_value=portfolio_value,
+        low_pct=low_pct,
+        high_pct=high_pct,
+        low_dollars=portfolio_value * low_pct,
+        high_dollars=portfolio_value * high_pct,
+        note=note,
+    )
+
+
+# --- 4) Correlation / "hidden" concentration --------------------------------
+#
+# Counting weight by individual stock misses the case where several holdings
+# move together (same sector, same macro driver). Pairwise return correlation
+# measures that directly: a basket of names that all rise and fall in lockstep
+# is less diversified than its position count suggests.
+
+
+class CorrelatedPair(BaseModel):
+    symbol_a: str
+    symbol_b: str
+    correlation: float  # -1..1
+
+
+class CorrelationInsight(BaseModel):
+    symbols: list[str]
+    avg_correlation: float  # mean of all distinct pairwise correlations
+    high_pairs: list[CorrelatedPair]  # pairs above HIGH_CORRELATION
+    level: str  # "low" | "moderate" | "high" hidden concentration
+    note: str
+    threshold: float = HIGH_CORRELATION
+
+
+def analyze_correlation(
+    matrix: dict[str, dict[str, float]],
+) -> CorrelationInsight | None:
+    """Summarize how much a portfolio's holdings move together.
+
+    ``matrix`` is a correlation matrix as nested dicts (symbol -> symbol ->
+    correlation). Pure and network-free so it's trivially testable; the price
+    fetch lives in :func:`compute_correlation_insight`. Returns ``None`` if
+    there are fewer than two symbols to compare.
+    """
+    symbols = list(matrix)
+    if len(symbols) < 2:
+        return None
+
+    pairs: list[CorrelatedPair] = []
+    for a, b in combinations(symbols, 2):
+        corr = matrix.get(a, {}).get(b)
+        if corr is None:
+            continue
+        pairs.append(CorrelatedPair(symbol_a=a, symbol_b=b, correlation=round(corr, 3)))
+    if not pairs:
+        return None
+
+    avg = sum(p.correlation for p in pairs) / len(pairs)
+    high_pairs = sorted(
+        (p for p in pairs if p.correlation >= HIGH_CORRELATION),
+        key=lambda p: p.correlation,
+        reverse=True,
+    )
+
+    if avg >= 0.70 or len(high_pairs) >= 3:
+        level = "high"
+        note = (
+            f"Several of your holdings tend to rise and fall together (average "
+            f"correlation {avg:.2f}). Your portfolio is less diversified than "
+            f"its {len(symbols)} positions suggest — in a downturn these names "
+            f"could drop at the same time. Adding something that behaves "
+            f"differently (a different sector, or an asset like bonds) would "
+            f"diversify more effectively than another correlated name."
+        )
+    elif avg >= 0.40 or high_pairs:
+        level = "moderate"
+        note = (
+            f"Your holdings move together a moderate amount (average "
+            f"correlation {avg:.2f}). You get some diversification benefit, but "
+            f"keep an eye on the closely-linked pairs below before adding to "
+            f"either side of them."
+        )
+    else:
+        level = "low"
+        note = (
+            f"Your holdings move fairly independently (average correlation "
+            f"{avg:.2f}) — a sign of genuine diversification, since they're "
+            f"unlikely to all fall at once."
+        )
+
+    return CorrelationInsight(
+        symbols=symbols,
+        avg_correlation=round(avg, 3),
+        high_pairs=high_pairs,
+        level=level,
+        note=note,
+    )
+
+
+def _correlation_sync(symbols: list[str], lookback_days: int) -> CorrelationInsight | None:
+    # Reuse the performance module's return-history fetch, then correlate.
+    from .performance import _fetch_returns
+
+    uniq = list(dict.fromkeys(s.upper() for s in symbols))
+    if len(uniq) < 2:
+        return None
+    returns = _fetch_returns(uniq, lookback_days)
+    if returns is None or returns.shape[1] < 2:
+        return None
+    corr = returns.corr()
+    matrix = {
+        a: {b: float(corr.loc[a, b]) for b in corr.columns} for a in corr.index
+    }
+    return analyze_correlation(matrix)
+
+
+async def compute_correlation_insight(
+    symbols: list[str], lookback_days: int = 730, *, fresh: bool = False
+) -> CorrelationInsight | None:
+    """Fetch return history for ``symbols`` and summarize how they co-move.
+
+    Cached per symbol-set + lookback + trading day, so revisiting the portfolio
+    page skips the yfinance download. Blocking work is offloaded to a thread,
+    mirroring :func:`app.portfolio.performance.compute_performance`.
+    """
+    uniq = list(dict.fromkeys(s.upper() for s in symbols))
+    if len(uniq) < 2:
+        return None
+
+    day = datetime.now(UTC).date().isoformat()
+    key = f"{'-'.join(sorted(uniq))}:{lookback_days}:{day}"
+
+    async def produce() -> dict | None:
+        insight = await asyncio.to_thread(_correlation_sync, uniq, lookback_days)
+        return insight.model_dump() if insight else None
+
+    # A "no data" result serializes to None, which the cache treats as a miss —
+    # so we never persist an empty insight and will retry it next time.
+    value, _ = await with_cache("correlation", key, CORRELATION_TTL_MS, produce, fresh=fresh)
+    return CorrelationInsight.model_validate(value) if value is not None else None

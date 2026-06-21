@@ -1,0 +1,46 @@
+{# Correlation / hidden-concentration insight.
+   Context: insight = CorrelationInsight | None, too_few: bool #}
+{% if too_few %}
+<p class="text-sm text-[var(--sea-ink-soft)]">Add at least two holdings to check how much they move together.</p>
+{% elif insight is none %}
+<p class="text-sm text-[var(--sea-ink-soft)]">Not enough overlapping price history to measure correlation yet.</p>
+{% else %}
+{% set lvl = insight.level %}
+<div class="rounded-2xl border p-4 text-sm
+  {% if lvl == 'high' %}border-red-400/50 bg-red-500/10
+  {% elif lvl == 'moderate' %}border-amber-400/50 bg-amber-500/10
+  {% else %}border-emerald-400/50 bg-emerald-500/10{% endif %}">
+  <div class="mb-1 flex items-baseline justify-between">
+    <p class="font-semibold">Hidden concentration: {{ lvl }}</p>
+    <p class="text-xs text-[var(--sea-ink-soft)]">avg correlation <span class="font-semibold tabular-nums">{{ '%.2f' | format(insight.avg_correlation) }}</span></p>
+  </div>
+  <p>{{ insight.note }}</p>
+</div>
+
+{% if insight.high_pairs %}
+<div class="mt-3">
+  <p class="mb-2 text-xs font-medium text-[var(--sea-ink-soft)]">Pairs that move closely together (≥ {{ '%.2f' | format(insight.threshold) }})</p>
+  <ul class="flex flex-wrap gap-2">
+    {% for p in insight.high_pairs %}
+    <li class="rounded-full border border-[var(--line)] px-3 py-1 text-xs tabular-nums">
+      {{ p.symbol_a }} ↔ {{ p.symbol_b }}
+      <span class="ml-1 font-semibold">{{ '%.2f' | format(p.correlation) }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<details class="mt-3 text-xs text-[var(--sea-ink-soft)]">
+  <summary class="cursor-pointer font-medium">What "correlation" means and why it matters</summary>
+  <p class="mt-2">
+    Correlation measures how two stocks' day-to-day moves line up: near
+    <strong>+1</strong> they rise and fall together, near <strong>0</strong>
+    they move independently. Owning ten names that all behave the same way isn't
+    really ten bets — it's closer to one. That's "hidden" concentration the
+    per-stock weights above can't reveal. When you weigh your next trade, adding
+    something <em>uncorrelated</em> to what you already hold diversifies more
+    than adding another name that moves with the pack.
+  </p>
+</details>
+{% endif %}

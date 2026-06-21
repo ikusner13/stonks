@@ -44,6 +44,28 @@
   <p class="text-sm">{{ report.summary }}</p>
 </section>
 
+{% if sizing %}
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Position sizing guidance</h2>
+  <div class="rounded-2xl border border-[var(--line)] p-4 text-sm">
+    {% if sizing.portfolio_value > 0 %}
+    <div class="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+      <div>
+        <span class="text-xs text-[var(--sea-ink-soft)]">Suggested size</span>
+        <span class="ml-1 font-semibold tabular-nums">{{ sizing.low_pct | pct }} – {{ sizing.high_pct | pct }}</span>
+        <span class="text-[var(--sea-ink-soft)]">of portfolio</span>
+      </div>
+      <div>
+        <span class="text-xs text-[var(--sea-ink-soft)]">≈</span>
+        <span class="font-semibold tabular-nums">${{ sizing.low_dollars | fmt_num }} – ${{ sizing.high_dollars | fmt_num }}</span>
+      </div>
+    </div>
+    {% endif %}
+    <p class="mt-2 text-[var(--sea-ink-soft)]">{{ sizing.note }}</p>
+  </div>
+</section>
+{% endif %}
+
 <section class="mt-6">
   <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Key metrics</h2>
   <ul class="space-y-2">

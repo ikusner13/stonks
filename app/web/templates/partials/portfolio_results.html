@@ -32,6 +32,50 @@
     {{ metrics_card("Optimal (" ~ result.objective ~ ")", result.optimal) }}
     {% if result.current %}{{ metrics_card("Current allocation", result.current) }}{% endif %}
   </div>
+
+  {% if drift %}
+  <section class="mt-8">
+    <h2 class="mb-1 text-sm font-semibold">Allocation drift &amp; rebalancing signals</h2>
+    <p class="mb-3 text-xs text-[var(--sea-ink-soft)]">
+      {% if drift.significant_count %}
+        {{ drift.significant_count }} position{{ 's' if drift.significant_count != 1 }} drifted more than {{ drift.threshold_pct | pct }} from the suggested target.
+      {% else %}
+        Every position is within {{ drift.threshold_pct | pct }} of its suggested target — no meaningful drift right now.
+      {% endif %}
+    </p>
+    <ul class="space-y-2">
+      {% for d in drift.items %}
+      <li class="rounded-xl border p-3 text-sm
+        {% if d.significant and d.direction == 'over' %}border-amber-400/50 bg-amber-500/10
+        {% elif d.significant %}border-sky-400/50 bg-sky-500/10
+        {% else %}border-[var(--line)]{% endif %}">
+        <div class="flex items-center justify-between">
+          <span class="font-semibold">{{ d.symbol }}</span>
+          <span class="tabular-nums text-[var(--sea-ink-soft)]">
+            now {{ d.current_weight | pct }} → target {{ d.target_weight | pct }}
+            <span class="ml-1 font-medium {% if d.significant and d.direction == 'over' %}text-amber-500{% elif d.significant %}text-sky-500{% endif %}">
+              ({{ '+' if d.drift >= 0 else '' }}{{ d.drift | pct }})
+            </span>
+          </span>
+        </div>
+        {% if d.significant %}<p class="mt-1 text-[var(--sea-ink-soft)]">{{ d.suggestion }}</p>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <details class="mt-3 text-xs text-[var(--sea-ink-soft)]">
+      <summary class="cursor-pointer font-medium">What "drift" means and why it matters</summary>
+      <p class="mt-2">
+        Drift is the gap between what you actually hold today and the allocation
+        the optimizer suggests. As prices move, winners grow into a bigger slice
+        of your portfolio and losers shrink — so your real risk slowly drifts
+        away from your intended plan. Rebalancing (trimming the overweight,
+        topping up the underweight) nudges you back toward target. These are
+        prompts to consider, not instructions — you decide every trade.
+      </p>
+    </details>
+  </section>
+  {% endif %}
+
   {% if result.efficient_frontier %}
   <section class="mt-6">
     <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Efficient frontier</h2>

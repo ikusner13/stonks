@@ -15,6 +15,15 @@ from .. import db
 from ..llm.discovery import discover_ideas
 from ..llm.pipeline import research_ticker_cached
 from ..llm.usage import format_event, with_run
+from ..portfolio.decision_support import (
+    DISCLAIMER as DS_DISCLAIMER,
+)
+from ..portfolio.decision_support import (
+    analyze_drift,
+    assess_portfolio_health,
+    compute_correlation_insight,
+    suggest_position_size,
+)
 from ..portfolio.holdings import (
     init_holdings_db,
     list_holdings,
@@ -120,10 +129,16 @@ async def research_report(request: Request, symbol: str, mode: str = "thorough",
     async with with_run("research", sym, mode) as ctx:
         result = await research_ticker_cached(sym, mode, fresh=bool(fresh))
     print("\n" + format_event(ctx.extra["_event"]), file=sys.stderr)
+    # Tie a conservative position-size range to this report's confidence and
+    # the current portfolio size — research-grounded decision support.
+    valuation = await value_holdings()
+    sizing = suggest_position_size(
+        valuation.total_value, result.report.confidence, symbol=sym
+    )
     return templates.TemplateResponse(
         request,
         "partials/research_report.html",
-        {"result": result, "mode": mode, "watched": db.has(sym)},
+        {"result": result, "mode": mode, "watched": db.has(sym), "sizing": sizing},
     )
 
 
@@ -164,10 +179,17 @@ async def portfolio_page(request: Request):
     valuation = await value_holdings()
     holdings = list_holdings()
     optimizer_rows = [{"symbol": h.symbol, "value": None} for h in holdings]
+    health = assess_portfolio_health(valuation)
     return templates.TemplateResponse(
         request,
         "portfolio.html",
-        {"active": "portfolio", "valuation": valuation, "optimizer_rows": optimizer_rows},
+        {
+            "active": "portfolio",
+            "valuation": valuation,
+            "optimizer_rows": optimizer_rows,
+            "health": health,
+            "ds_disclaimer": DS_DISCLAIMER,
+        },
     )
 
 
@@ -215,6 +237,17 @@ async def portfolio_holdings_remove(request: Request, symbol: str):
     valuation = await value_holdings()
     return templates.TemplateResponse(
         request, "partials/holdings_table.html", {"valuation": valuation}
+    )
+
+
+@app.get("/portfolio/correlation", response_class=HTMLResponse)
+async def portfolio_correlation(request: Request):
+    symbols = [h.symbol for h in list_holdings()]
+    insight = await compute_correlation_insight(symbols) if len(symbols) >= 2 else None
+    return templates.TemplateResponse(
+        request,
+        "partials/portfolio_correlation.html",
+        {"insight": insight, "too_few": len(symbols) < 2},
     )
 
 
@@ -297,6 +330,9 @@ async def portfolio_optimize(request: Request):
             "partials/portfolio_results.html",
             {"available": False, "reason": f"Optimization failed: {e}"},
         )
+    drift = analyze_drift(result)
     return templates.TemplateResponse(
-        request, "partials/portfolio_results.html", {"available": True, "result": result}
+        request,
+        "partials/portfolio_results.html",
+        {"available": True, "result": result, "drift": drift},
     )
