@@ -1,0 +1,4 @@
+minimumReleaseAgeExclude:
+  - nitro-nightly@3.0.1-20260621-112201-f9f328e1
+onlyBuiltDependencies:
+  - esbuild
