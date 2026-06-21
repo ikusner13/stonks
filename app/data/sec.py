@@ -20,7 +20,7 @@ def _ensure_identity() -> None:
     global _IDENTITY_SET
     if not _IDENTITY_SET:
         import edgar
-        edgar.set_identity(os.getenv("SEC_IDENTITY", "ikusner@efuse.io"))
+        edgar.set_identity(os.getenv("SEC_IDENTITY", "ikusner13@gmail.com"))
         _IDENTITY_SET = True
 
 
