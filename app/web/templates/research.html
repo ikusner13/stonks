@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ sym }} · Stock Research{% endblock %}
+{% block content %}
+<main class="page-wrap px-4 pb-8 pt-10">
+  <div
+    id="report"
+    hx-get="/research/{{ sym }}/report?mode={{ mode }}"
+    hx-trigger="load"
+    hx-swap="innerHTML"
+  >
+    <h1 class="text-2xl font-bold">{{ sym }}</h1>
+    <p class="mt-4 text-sm text-[var(--sea-ink-soft)]">
+      Fetching market data, then running research + critic review. This takes several seconds…
+    </p>
+  </div>
+</main>
+{% endblock %}

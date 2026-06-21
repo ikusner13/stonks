@@ -1,7 +1,0 @@
-services:
-  portfolio-sidecar:
-    build: .
-    image: portfolio-sidecar:latest
-    ports:
-      - "8000:8000"
-    restart: unless-stopped

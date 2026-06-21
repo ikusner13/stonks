@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Portfolio · Stock Research{% endblock %}
+{% block content %}
+<main class="page-wrap px-4 pb-8 pt-10">
+  <h1 class="mb-1 text-3xl font-bold tracking-tight">Portfolio</h1>
+  <p class="mb-6 text-sm text-[var(--sea-ink-soft)]">
+    Mean-variance allocation over historical returns — research context, not advice. Optional
+    dollar positions enable a current-vs-optimal comparison.
+  </p>
+
+  <form hx-post="/portfolio/optimize" hx-target="#opt-results" hx-indicator="#opt-spin">
+    <div id="rows" class="space-y-2">
+      {% for r in rows %}{% include "partials/portfolio_row.html" %}{% endfor %}
+    </div>
+
+    <div class="mt-4 flex flex-wrap items-center gap-3">
+      <button type="button" hx-get="/portfolio/row" hx-target="#rows" hx-swap="beforeend"
+        class="rounded-full border border-[var(--line)] px-3 py-1 text-xs">+ Add ticker</button>
+      <label class="flex items-center gap-2 text-xs text-[var(--sea-ink-soft)]">
+        objective:
+        <select name="objective" class="rounded-full border border-[var(--line)] bg-transparent px-2 py-1 text-xs">
+          <option value="max_sharpe">max_sharpe</option>
+          <option value="min_risk">min_risk</option>
+        </select>
+      </label>
+      <button type="submit"
+        class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-1.5 text-sm font-semibold">
+        Optimize
+      </button>
+    </div>
+  </form>
+
+  <p id="opt-spin" class="htmx-indicator mt-6 text-sm text-[var(--sea-ink-soft)]">
+    Fetching price history and optimizing…
+  </p>
+  <div id="opt-results"></div>
+</main>
+{% endblock %}

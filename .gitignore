@@ -1,20 +1,15 @@
-node_modules/
 .env
 .env.local
-dist/
 *.log
 .DS_Store
 .cache/
-# build + generated
-.output/
-.nitro/
-.tanstack/
-.vite/
-src/routeTree.gen.ts
 
-# Python (sidecar)
+# Python
 __pycache__/
 *.pyc
 .venv/
 .ruff_cache/
 .pytest_cache/
+
+# SQLite watchlist store
+stocks.db

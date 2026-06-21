@@ -1,0 +1,122 @@
+{# Rendered into #report. Mode/refresh controls re-issue hx-get into the same div. #}
+{% macro badge(level) %}
+<span class="rounded-full border px-2 py-0.5 text-xs
+  {% if level == 'high' %}border-emerald-400/50 bg-emerald-500/10
+  {% elif level == 'medium' %}border-amber-400/50 bg-amber-500/10
+  {% else %}border-red-400/50 bg-red-500/10{% endif %}">{{ level }}</span>
+{% endmacro %}
+
+{% set report = result.report %}
+{% set critique = result.critique %}
+{% set q = result.ticker.quote %}
+
+<div class="flex flex-wrap items-baseline justify-between gap-3">
+  <h1 class="text-2xl font-bold">
+    {{ report.company_name }} <span class="text-[var(--sea-ink-soft)]">({{ report.symbol }})</span>
+  </h1>
+  <div class="flex items-center gap-3 text-sm">
+    {% if q %}
+    <span>
+      {{ q.price | fmt_num }} {{ q.currency }}
+      <span class="{{ 'text-emerald-500' if q.change >= 0 else 'text-red-500' }}">
+        {{ '+' if q.change >= 0 else '' }}{{ '%.2f' | format(q.change_percent) }}%
+      </span>
+    </span>
+    {% endif %}
+    <span class="text-[var(--sea-ink-soft)]">confidence: {{ report.confidence }}</span>
+    <button
+      hx-get="/research/{{ report.symbol }}/report?mode={{ 'cheap' if mode == 'thorough' else 'thorough' }}"
+      hx-target="#report" hx-swap="innerHTML"
+      class="rounded-full border border-[var(--line)] px-3 py-1 text-xs"
+      title="thorough = premium critic chain; cheap = workhorse critic, no revision"
+    >mode: {{ mode }}</button>
+    <button
+      hx-get="/research/{{ report.symbol }}/report?mode={{ mode }}&fresh=1"
+      hx-target="#report" hx-swap="innerHTML"
+      class="rounded-full border border-[var(--line)] px-3 py-1 text-xs"
+    >Refresh</button>
+    {% with sym = report.symbol, watched = watched %}{% include "partials/watch_button.html" %}{% endwith %}
+  </div>
+</div>
+
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Summary</h2>
+  <p class="text-sm">{{ report.summary }}</p>
+</section>
+
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Key metrics</h2>
+  <ul class="space-y-2">
+    {% for m in report.key_metrics %}
+    <li class="text-sm">
+      <span class="font-semibold">{{ m.label }}: {{ m.value }}</span>
+      <span class="block text-[var(--sea-ink-soft)]">{{ m.interpretation }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<div class="grid gap-6 sm:grid-cols-2">
+  <section class="mt-6">
+    <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Bull case</h2>
+    <ul class="list-disc space-y-1 pl-5 text-sm">{% for b in report.thesis.bull %}<li>{{ b }}</li>{% endfor %}</ul>
+  </section>
+  <section class="mt-6">
+    <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Bear case</h2>
+    <ul class="list-disc space-y-1 pl-5 text-sm">{% for b in report.thesis.bear %}<li>{{ b }}</li>{% endfor %}</ul>
+  </section>
+</div>
+
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Valuation context</h2>
+  <p class="text-sm">{{ report.valuation_context }}</p>
+</section>
+
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Risks</h2>
+  <ul class="list-disc space-y-1 pl-5 text-sm">{% for r in report.risks %}<li>{{ r }}</li>{% endfor %}</ul>
+</section>
+
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Things to investigate</h2>
+  <ul class="list-disc space-y-1 pl-5 text-sm">{% for t in report.things_to_investigate %}<li>{{ t }}</li>{% endfor %}</ul>
+</section>
+
+{% if result.ticker.news %}
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Recent news</h2>
+  <ul class="space-y-1 text-sm">
+    {% for n in result.ticker.news %}
+    <li><a href="{{ n.url }}" target="_blank" rel="noreferrer" class="no-underline hover:underline">{{ n.title }}</a>
+      <span class="text-xs text-[var(--sea-ink-soft)]">— {{ n.source }}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">
+    Critic review{% if result.revised %} · report was revised{% endif %}
+  </h2>
+  <div class="rounded-2xl border border-[var(--line)] p-4 text-sm">
+    <p class="mb-2">Fabrication check:
+      <span class="{{ 'text-emerald-500' if critique.fabrication_check.passed else 'text-red-500' }}">
+        {{ 'PASSED' if critique.fabrication_check.passed else 'FAILED' }}
+      </span>
+      <span class="text-[var(--sea-ink-soft)]">— {{ critique.fabrication_check.details }}</span>
+    </p>
+    <p class="mb-2 text-[var(--sea-ink-soft)]">Suggested confidence: {{ critique.suggested_confidence }}</p>
+    {% if critique.issues %}
+    <ul class="space-y-2">
+      {% for iss in critique.issues %}
+      <li>{{ badge(iss.severity) }} <span class="font-medium">{{ iss.field }}</span>
+        <span class="block text-[var(--sea-ink-soft)]">{{ iss.problem }}</span>
+        <span class="block text-[var(--sea-ink-soft)]">fix: {{ iss.fix }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-[var(--sea-ink-soft)]">No issues raised.</p>
+    {% endif %}
+    <p class="mt-3 text-[var(--sea-ink-soft)]">{{ critique.overall_assessment }}</p>
+  </div>
+</section>

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Stock Research{% endblock %}</title>
+    <script>
+      // No-flash theme init (mirrors the original inline script).
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("theme");
+          var mode = stored === "light" || stored === "dark" || stored === "auto" ? stored : "auto";
+          var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var resolved = mode === "auto" ? (prefersDark ? "dark" : "light") : mode;
+          var root = document.documentElement;
+          if (mode === "auto") root.removeAttribute("data-theme");
+          else root.setAttribute("data-theme", mode);
+          root.style.colorScheme = resolved;
+        } catch (e) {}
+      })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body class="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
+    <header class="sticky top-0 z-50 border-b border-[var(--line)] bg-[var(--header-bg)] px-4 backdrop-blur-lg">
+      <nav class="page-wrap flex flex-wrap items-center gap-x-3 gap-y-2 py-3 sm:py-4">
+        <h2 class="m-0 flex-shrink-0 text-base font-semibold tracking-tight">
+          <a href="/" class="inline-flex items-center gap-2 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm text-[var(--sea-ink)] no-underline sm:px-4 sm:py-2">
+            <span class="h-2 w-2 rounded-full bg-[linear-gradient(90deg,#56c6be,#7ed3bf)]"></span>
+            Stock Research
+          </a>
+        </h2>
+        <div class="order-3 flex w-full flex-wrap items-center gap-x-4 gap-y-1 text-sm font-semibold sm:order-none sm:w-auto sm:flex-nowrap">
+          <a href="/" class="nav-link {% if active == 'discover' %}is-active{% endif %}">Discover</a>
+          <a href="/watchlist" class="nav-link {% if active == 'watchlist' %}is-active{% endif %}">Watchlist</a>
+          <a href="/portfolio" class="nav-link {% if active == 'portfolio' %}is-active{% endif %}">Portfolio</a>
+        </div>
+        <div class="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <button onclick="cycleTheme()" id="theme-btn" class="rounded-full border border-[var(--line)] px-3 py-1.5 text-xs" title="Toggle light / dark / auto">
+            theme
+          </button>
+        </div>
+      </nav>
+    </header>
+
+    {% block content %}{% endblock %}
+
+    <footer class="site-footer mt-12 px-4 py-6 text-center text-xs text-[var(--sea-ink-soft)]">
+      Research context only — not investment advice.
+    </footer>
+
+    <script>
+      function cycleTheme() {
+        var order = ["auto", "light", "dark"];
+        var cur = window.localStorage.getItem("theme") || "auto";
+        var next = order[(order.indexOf(cur) + 1) % order.length];
+        window.localStorage.setItem("theme", next);
+        var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        var resolved = next === "auto" ? (prefersDark ? "dark" : "light") : next;
+        var root = document.documentElement;
+        if (next === "auto") root.removeAttribute("data-theme");
+        else root.setAttribute("data-theme", next);
+        root.style.colorScheme = resolved;
+        document.getElementById("theme-btn").textContent = next;
+      }
+      document.getElementById("theme-btn").textContent =
+        window.localStorage.getItem("theme") || "auto";
+    </script>
+  </body>
+</html>

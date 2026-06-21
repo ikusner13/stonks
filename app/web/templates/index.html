@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Discover · Stock Research{% endblock %}
+{% block content %}
+<main class="page-wrap px-4 pb-8 pt-10">
+  <h1 class="mb-2 text-3xl font-bold tracking-tight">Discover ideas</h1>
+  <p class="mb-6 text-sm text-[var(--sea-ink-soft)]">
+    Describe what you're looking for. Candidates are validated against real market data —
+    hallucinated tickers are dropped and numeric filters enforced in code.
+  </p>
+
+  <form hx-post="/discover" hx-target="#results" hx-indicator="#discover-spin" class="flex gap-2">
+    <input
+      name="goal"
+      value="{{ goal or '' }}"
+      placeholder="e.g. AI infrastructure under $100B market cap"
+      class="flex-1 rounded-xl border border-[var(--line)] bg-transparent px-4 py-2.5 text-sm outline-none focus:border-[var(--sea-ink-soft)]"
+    />
+    <button type="submit" class="rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] px-5 py-2.5 text-sm font-semibold">
+      Discover
+    </button>
+  </form>
+
+  <div class="mt-3 flex flex-wrap gap-2">
+    {% for ex in examples %}
+    <button
+      hx-post="/discover" hx-target="#results" hx-indicator="#discover-spin"
+      hx-vals='{"goal": {{ ex | tojson }}}'
+      class="rounded-full border border-[var(--line)] px-3 py-1 text-xs text-[var(--sea-ink-soft)]"
+    >{{ ex }}</button>
+    {% endfor %}
+  </div>
+
+  <p id="discover-spin" class="htmx-indicator mt-8 text-sm text-[var(--sea-ink-soft)]">
+    Interpreting the goal, screening, validating candidates against live data… this takes a few seconds.
+  </p>
+
+  <div id="results">{% if result %}{% include "partials/candidates.html" %}{% endif %}</div>
+</main>
+{% endblock %}

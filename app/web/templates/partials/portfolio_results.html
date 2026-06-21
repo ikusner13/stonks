@@ -1,0 +1,45 @@
+{% macro metrics_card(title, m) %}
+<div class="rounded-2xl border border-[var(--line)] p-4">
+  <h3 class="mb-3 text-sm font-semibold">{{ title }}</h3>
+  <dl class="mb-4 grid grid-cols-3 gap-2 text-sm">
+    <div><dt class="text-xs text-[var(--sea-ink-soft)]">Exp. return</dt><dd class="font-semibold">{{ m.expected_return | pct }}</dd></div>
+    <div><dt class="text-xs text-[var(--sea-ink-soft)]">Volatility</dt><dd class="font-semibold">{{ m.volatility | pct }}</dd></div>
+    <div><dt class="text-xs text-[var(--sea-ink-soft)]">Sharpe</dt><dd class="font-semibold">{{ '%.2f' | format(m.sharpe) }}</dd></div>
+  </dl>
+  <ul class="space-y-1.5">
+    {% for sym, w in m.weights | dictsort(by='value', reverse=true) %}
+    {% if w > 0.0005 %}
+    <li class="text-sm">
+      <div class="flex justify-between"><span class="font-medium">{{ sym }}</span><span class="text-[var(--sea-ink-soft)]">{{ w | pct }}</span></div>
+      <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--chip-bg)]">
+        <div class="h-full rounded-full bg-[linear-gradient(90deg,#56c6be,#7ed3bf)]" style="width: {{ [100, w * 100] | min }}%"></div>
+      </div>
+    </li>
+    {% endif %}
+    {% endfor %}
+  </ul>
+</div>
+{% endmacro %}
+
+{% if not available %}
+<p class="mt-6 rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm">{{ reason }}</p>
+{% else %}
+<div class="mt-8">
+  {% if result.warnings %}
+  <ul class="mb-4 space-y-1 text-xs text-amber-500">{% for w in result.warnings %}<li>⚠ {{ w }}</li>{% endfor %}</ul>
+  {% endif %}
+  <div class="grid gap-6 sm:grid-cols-2">
+    {{ metrics_card("Optimal (" ~ result.objective ~ ")", result.optimal) }}
+    {% if result.current %}{{ metrics_card("Current allocation", result.current) }}{% endif %}
+  </div>
+  {% if result.efficient_frontier %}
+  <section class="mt-6">
+    <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Efficient frontier</h2>
+    <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--sea-ink-soft)]">
+      {% for p in result.efficient_frontier %}<span>σ {{ p.volatility | pct }} → r {{ p.expected_return | pct }}</span>{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+  <p class="mt-6 text-xs text-[var(--sea-ink-soft)]">{{ result.disclaimer }}</p>
+</div>
+{% endif %}

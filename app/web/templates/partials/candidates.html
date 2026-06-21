@@ -1,0 +1,25 @@
+<section class="mt-8">
+  <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Interpreted as: {{ result.interpretation }}</p>
+  {% if not result.candidates %}
+  <p class="text-sm">No candidates survived validation and filtering.</p>
+  {% else %}
+  <ul class="space-y-3">
+    {% for c in result.candidates %}
+    <li class="rounded-2xl border border-[var(--line)] p-4">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <a href="/research/{{ c.symbol }}" class="text-lg font-semibold no-underline">
+          {{ c.symbol }} <span class="text-sm font-normal text-[var(--sea-ink-soft)]">{{ c.name }}</span>
+        </a>
+        <div class="flex items-center gap-3 text-xs text-[var(--sea-ink-soft)]">
+          <span>cap {{ c.market_cap | fmt_cap }}</span>
+          <span>P/E {{ c.pe_ratio | fmt_num }}</span>
+          <span class="rounded-full border border-[var(--line)] px-2 py-0.5">{{ c.source }}</span>
+          {% with sym = c.symbol, watched = c.symbol in watched_symbols %}{% include "partials/watch_button.html" %}{% endwith %}
+        </div>
+      </div>
+      <p class="mt-2 text-sm text-[var(--sea-ink-soft)]">{{ c.rationale }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
