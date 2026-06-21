@@ -48,6 +48,8 @@ class TickerData(BaseModel):
     quote: Quote | None = None
     fundamentals: Fundamentals = Field(default_factory=Fundamentals)
     news: list[NewsItem] = Field(default_factory=list)
+    financials: SecFinancials | None = None
+    macro: MacroContext | None = None
 
 
 # --- Research report --------------------------------------------------------
@@ -171,3 +173,11 @@ class ResearchResult(BaseModel):
     report: TickerReport
     critique: Critique
     revised: bool
+
+
+# Deferred imports to avoid circular dependency (data/ imports schemas).
+# model_rebuild() resolves the forward references in TickerData.
+from .data.sec import SecFinancials  # noqa: E402
+from .data.macro import MacroContext  # noqa: E402
+
+TickerData.model_rebuild()

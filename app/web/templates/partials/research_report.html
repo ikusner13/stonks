@@ -67,6 +67,31 @@
   </section>
 </div>
 
+{% if result.ticker.financials %}
+{% set fin = result.ticker.financials %}
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">SEC financials</h2>
+  <ul class="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+    {% if fin.revenue is not none %}<li><span class="text-[var(--sea-ink-soft)]">Revenue</span> {{ fin.revenue | fmt_cap }}</li>{% endif %}
+    {% if fin.gross_profit is not none %}<li><span class="text-[var(--sea-ink-soft)]">Gross profit</span> {{ fin.gross_profit | fmt_cap }}</li>{% endif %}
+    {% if fin.operating_income is not none %}<li><span class="text-[var(--sea-ink-soft)]">Operating income</span> {{ fin.operating_income | fmt_cap }}</li>{% endif %}
+    {% if fin.net_income is not none %}<li><span class="text-[var(--sea-ink-soft)]">Net income</span> {{ fin.net_income | fmt_cap }}</li>{% endif %}
+    {% if fin.operating_cash_flow is not none %}<li><span class="text-[var(--sea-ink-soft)]">Operating CF</span> {{ fin.operating_cash_flow | fmt_cap }}</li>{% endif %}
+    {% if fin.free_cash_flow is not none %}<li><span class="text-[var(--sea-ink-soft)]">Free CF</span> {{ fin.free_cash_flow | fmt_cap }}</li>{% endif %}
+    {% if fin.total_assets is not none %}<li><span class="text-[var(--sea-ink-soft)]">Total assets</span> {{ fin.total_assets | fmt_cap }}</li>{% endif %}
+    {% if fin.total_liabilities is not none %}<li><span class="text-[var(--sea-ink-soft)]">Total liabilities</span> {{ fin.total_liabilities | fmt_cap }}</li>{% endif %}
+    {% if fin.total_debt is not none %}<li><span class="text-[var(--sea-ink-soft)]">Total debt</span> {{ fin.total_debt | fmt_cap }}</li>{% endif %}
+    {% if fin.cash_and_equivalents is not none %}<li><span class="text-[var(--sea-ink-soft)]">Cash &amp; equiv.</span> {{ fin.cash_and_equivalents | fmt_cap }}</li>{% endif %}
+    {% if fin.shares_outstanding is not none %}<li><span class="text-[var(--sea-ink-soft)]">Shares out.</span> {{ fin.shares_outstanding | fmt_cap }}</li>{% endif %}
+  </ul>
+  {% if fin.form or fin.fiscal_period or fin.filed %}
+  <p class="mt-2 text-xs text-[var(--sea-ink-soft)]">
+    {{ [fin.form, fin.fiscal_period, ('filed ' + fin.filed if fin.filed else None)] | select | join(' · ') }}
+  </p>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="mt-6">
   <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Valuation context</h2>
   <p class="text-sm">{{ report.valuation_context }}</p>
@@ -91,6 +116,20 @@
       <span class="text-xs text-[var(--sea-ink-soft)]">— {{ n.source }}</span></li>
     {% endfor %}
   </ul>
+</section>
+{% endif %}
+
+{% if result.ticker.macro %}
+{% set mc = result.ticker.macro %}
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Macro context</h2>
+  <div class="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+    {% if mc.fed_funds_rate is not none %}<span><span class="text-[var(--sea-ink-soft)]">Fed funds</span> {{ '%.2f' | format(mc.fed_funds_rate) }}%</span>{% endif %}
+    {% if mc.cpi_yoy is not none %}<span><span class="text-[var(--sea-ink-soft)]">CPI YoY</span> {{ '%.2f' | format(mc.cpi_yoy) }}%</span>{% endif %}
+    {% if mc.treasury_10y is not none %}<span><span class="text-[var(--sea-ink-soft)]">10y Treasury</span> {{ '%.2f' | format(mc.treasury_10y) }}%</span>{% endif %}
+    {% if mc.unemployment_rate is not none %}<span><span class="text-[var(--sea-ink-soft)]">Unemployment</span> {{ '%.2f' | format(mc.unemployment_rate) }}%</span>{% endif %}
+    {% if mc.gdp_growth is not none %}<span><span class="text-[var(--sea-ink-soft)]">GDP growth</span> {{ '%.2f' | format(mc.gdp_growth) }}%</span>{% endif %}
+  </div>
 </section>
 {% endif %}
 

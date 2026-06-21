@@ -69,16 +69,3 @@ def add(symbol: str) -> None:
 def remove(symbol: str) -> None:
     with _conn() as c:
         c.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol.upper(),))
-
-
-def set_value(symbol: str, value: float | None) -> None:
-    """Set (or clear) the dollar position for a symbol, inserting it if needed."""
-    sym = symbol.upper()
-    with _conn() as c:
-        c.execute(
-            """
-            INSERT INTO watchlist (symbol, value) VALUES (?, ?)
-            ON CONFLICT(symbol) DO UPDATE SET value = excluded.value
-            """,
-            (sym, value),
-        )

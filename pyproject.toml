@@ -23,6 +23,10 @@ dependencies = [
     # CLI
     "typer>=0.15.0",
     "rich>=13.9",
+    "edgartools>=5.38.0",
+    "quantstats-lumi>=1.1.5",
+    "fredapi>=0.5.2",
+    "wbgapi>=1.0.14",
 ]
 
 [project.scripts]

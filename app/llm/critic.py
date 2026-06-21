@@ -58,6 +58,10 @@ def _collect_allowed(data: TickerData) -> list[float]:
     for p in parts:
         for values in parse_numbers(p):
             allowed.extend(values)
+    if data.financials:
+        allowed.extend(data.financials.numeric_values())
+    if data.macro:
+        allowed.extend(data.macro.numeric_values())
     return allowed
 
 

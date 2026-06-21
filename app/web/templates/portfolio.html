@@ -1,38 +1,96 @@
 {% extends "base.html" %}
 {% block title %}Portfolio · Stock Research{% endblock %}
 {% block content %}
-<main class="page-wrap px-4 pb-8 pt-10">
+<main class="page-wrap px-4 pb-12 pt-10">
   <h1 class="mb-1 text-3xl font-bold tracking-tight">Portfolio</h1>
-  <p class="mb-6 text-sm text-[var(--sea-ink-soft)]">
-    Mean-variance allocation over historical returns — research context, not advice. Optional
-    dollar positions enable a current-vs-optimal comparison.
-  </p>
+  <p class="mb-8 text-sm text-[var(--sea-ink-soft)]">Track your real positions, optimize allocation, and measure historical performance.</p>
 
-  <form hx-post="/portfolio/optimize" hx-target="#opt-results" hx-indicator="#opt-spin">
-    <div id="rows" class="space-y-2">
-      {% for r in rows %}{% include "partials/portfolio_row.html" %}{% endfor %}
+  {# ── A) Holdings ──────────────────────────────────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="mb-4 text-lg font-semibold">Holdings</h2>
+
+    {# Live valuation table — refreshed after each add/remove #}
+    {% include "partials/holdings_table.html" %}
+
+    {# Add position form #}
+    <form hx-post="/portfolio/holdings"
+          hx-target="#holdings-table"
+          hx-swap="outerHTML"
+          hx-indicator="#holdings-spin"
+          class="mt-5"
+          id="add-holding-form">
+      <div class="flex flex-wrap items-end gap-3">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-[var(--sea-ink-soft)]">Symbol</label>
+          <input name="symbol" placeholder="AAPL" required
+            class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm uppercase" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-[var(--sea-ink-soft)]">Shares</label>
+          <input name="shares" placeholder="10" inputmode="decimal" required
+            class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-[var(--sea-ink-soft)]">Avg Cost (optional)</label>
+          <input name="avg_cost" placeholder="150.00" inputmode="decimal"
+            class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+        </div>
+        <button type="submit"
+          class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
+          Add / Update
+        </button>
+      </div>
+    </form>
+    <p id="holdings-spin" class="htmx-indicator mt-3 text-sm text-[var(--sea-ink-soft)]">Fetching prices…</p>
+  </section>
+
+  {# ── B) Performance ───────────────────────────────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="mb-4 text-lg font-semibold">Performance</h2>
+    <div class="rounded-2xl border border-[var(--line)] p-5">
+      <div
+        hx-get="/portfolio/performance"
+        hx-trigger="load"
+        hx-swap="innerHTML">
+        <p class="text-sm text-[var(--sea-ink-soft)]">Computing performance metrics…</p>
+      </div>
     </div>
+  </section>
 
-    <div class="mt-4 flex flex-wrap items-center gap-3">
-      <button type="button" hx-get="/portfolio/row" hx-target="#rows" hx-swap="beforeend"
-        class="rounded-full border border-[var(--line)] px-3 py-1 text-xs">+ Add ticker</button>
-      <label class="flex items-center gap-2 text-xs text-[var(--sea-ink-soft)]">
-        objective:
-        <select name="objective" class="rounded-full border border-[var(--line)] bg-transparent px-2 py-1 text-xs">
-          <option value="max_sharpe">max_sharpe</option>
-          <option value="min_risk">min_risk</option>
-        </select>
-      </label>
-      <button type="submit"
-        class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-1.5 text-sm font-semibold">
-        Optimize
-      </button>
-    </div>
-  </form>
+  {# ── C) Optimizer ─────────────────────────────────────────────────────────── #}
+  <section>
+    <h2 class="mb-1 text-lg font-semibold">Optimizer</h2>
+    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Mean-variance allocation seeded from your current holdings — research context, not advice.</p>
 
-  <p id="opt-spin" class="htmx-indicator mt-6 text-sm text-[var(--sea-ink-soft)]">
-    Fetching price history and optimizing…
-  </p>
-  <div id="opt-results"></div>
+    <form hx-post="/portfolio/optimize" hx-target="#opt-results" hx-indicator="#opt-spin">
+      <div id="rows" class="space-y-2">
+        {% for r in optimizer_rows %}{% include "partials/portfolio_row.html" %}{% endfor %}
+        {% if not optimizer_rows %}
+        {% set r = none %}{% include "partials/portfolio_row.html" %}
+        {% endif %}
+      </div>
+
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" hx-get="/portfolio/holdings/row" hx-target="#rows" hx-swap="beforeend"
+          class="rounded-full border border-[var(--line)] px-3 py-1 text-xs">+ Add ticker</button>
+        <label class="flex items-center gap-2 text-xs text-[var(--sea-ink-soft)]">
+          objective:
+          <select name="objective" class="rounded-full border border-[var(--line)] bg-transparent px-2 py-1 text-xs">
+            <option value="max_sharpe">max_sharpe</option>
+            <option value="min_risk">min_risk</option>
+          </select>
+        </label>
+        <button type="submit"
+          class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-1.5 text-sm font-semibold">
+          Optimize
+        </button>
+      </div>
+    </form>
+
+    <p id="opt-spin" class="htmx-indicator mt-6 text-sm text-[var(--sea-ink-soft)]">
+      Fetching price history and optimizing…
+    </p>
+    <div id="opt-results"></div>
+  </section>
 </main>
 {% endblock %}

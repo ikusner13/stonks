@@ -15,7 +15,15 @@ from .. import db
 from ..llm.discovery import discover_ideas
 from ..llm.pipeline import research_ticker_cached
 from ..llm.usage import format_event, with_run
+from ..portfolio.holdings import (
+    init_holdings_db,
+    list_holdings,
+    remove_holding,
+    upsert_holding,
+    value_holdings,
+)
 from ..portfolio.optimize import Holding, NoDataError, OptimizeRequest, optimize
+from ..portfolio.performance import compute_performance, tearsheet_html
 
 HERE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=HERE / "templates")
@@ -61,6 +69,7 @@ app = FastAPI(title="Stock Research")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 db.init_db()  # idempotent; ensures the watchlist table exists before first request
+init_holdings_db()  # idempotent; ensures the holdings table exists before first request
 
 
 # --- Discover ---------------------------------------------------------------
@@ -151,34 +160,122 @@ def watchlist_remove(symbol: str):
 
 
 @app.get("/portfolio", response_class=HTMLResponse)
-def portfolio_page(request: Request):
-    items = db.list_items()
-    rows = [{"symbol": i.symbol, "value": i.value} for i in items] or [None]
+async def portfolio_page(request: Request):
+    valuation = await value_holdings()
+    holdings = list_holdings()
+    optimizer_rows = [{"symbol": h.symbol, "value": None} for h in holdings]
     return templates.TemplateResponse(
-        request, "portfolio.html", {"active": "portfolio", "rows": rows}
+        request,
+        "portfolio.html",
+        {"active": "portfolio", "valuation": valuation, "optimizer_rows": optimizer_rows},
     )
 
 
-@app.get("/portfolio/row", response_class=HTMLResponse)
-def portfolio_row(request: Request):
+@app.get("/portfolio/holdings/row", response_class=HTMLResponse)
+def portfolio_holdings_row(request: Request):
     return templates.TemplateResponse(request, "partials/portfolio_row.html", {"r": None})
+
+
+@app.post("/portfolio/holdings", response_class=HTMLResponse)
+async def portfolio_holdings_add(
+    request: Request,
+    symbol: str = Form(""),
+    shares: str = Form(""),
+    avg_cost: str = Form(""),
+):
+    sym = symbol.strip().upper()
+    if not sym:
+        valuation = await value_holdings()
+        return templates.TemplateResponse(
+            request, "partials/holdings_table.html", {"valuation": valuation}
+        )
+    try:
+        shares_float = float(shares)
+    except (ValueError, TypeError):
+        valuation = await value_holdings()
+        return templates.TemplateResponse(
+            request, "partials/holdings_table.html", {"valuation": valuation}
+        )
+    avg_cost_float: float | None = None
+    if avg_cost and avg_cost.strip():
+        try:
+            avg_cost_float = float(avg_cost)
+        except ValueError:
+            pass
+    upsert_holding(sym, shares_float, avg_cost_float)
+    valuation = await value_holdings()
+    return templates.TemplateResponse(
+        request, "partials/holdings_table.html", {"valuation": valuation}
+    )
+
+
+@app.post("/portfolio/holdings/remove/{symbol}", response_class=HTMLResponse)
+async def portfolio_holdings_remove(request: Request, symbol: str):
+    remove_holding(symbol.upper())
+    valuation = await value_holdings()
+    return templates.TemplateResponse(
+        request, "partials/holdings_table.html", {"valuation": valuation}
+    )
+
+
+@app.get("/portfolio/performance", response_class=HTMLResponse)
+async def portfolio_performance(request: Request):
+    valuation = await value_holdings()
+    has_holdings = bool(valuation.holdings)
+    if not has_holdings:
+        return templates.TemplateResponse(
+            request,
+            "partials/performance.html",
+            {"has_holdings": False, "metrics": None},
+        )
+    weights = {h.symbol: h.weight for h in valuation.holdings if h.weight is not None}
+    metrics = await compute_performance(weights) if weights else None
+    return templates.TemplateResponse(
+        request,
+        "partials/performance.html",
+        {"has_holdings": True, "metrics": metrics},
+    )
+
+
+@app.get("/portfolio/tearsheet", response_class=HTMLResponse)
+async def portfolio_tearsheet(request: Request):
+    import anyio
+
+    valuation = await value_holdings()
+    if not valuation.holdings:
+        return HTMLResponse("<p>No holdings — add positions first.</p>")
+    weights = {h.symbol: h.weight for h in valuation.holdings if h.weight is not None}
+    if not weights:
+        return HTMLResponse("<p>Unable to compute weights — prices may be unavailable.</p>")
+    html = await anyio.to_thread.run_sync(
+        lambda: tearsheet_html(weights)
+    )
+    if not html:
+        return HTMLResponse("<p>Could not generate tearsheet — insufficient price history.</p>")
+    return HTMLResponse(content=html)
 
 
 @app.post("/portfolio/optimize", response_class=HTMLResponse)
 async def portfolio_optimize(request: Request):
+    import anyio
+
     form = await request.form()
     symbols = form.getlist("symbol")
     values = form.getlist("value")
     objective = form.get("objective", "max_sharpe")
 
-    holdings: list[Holding] = []
-    for sym, val in zip(symbols, values):
-        sym = (sym or "").strip().upper()
-        if not sym:
-            continue
-        value = float(val) if val and val.strip() else None
-        holdings.append(Holding(symbol=sym, value=value))
-        db.set_value(sym, value)  # persist positions so they prefill next time
+    # If no symbols passed via form, seed from holdings
+    if not any((s or "").strip() for s in symbols):
+        current_holdings = list_holdings()
+        holdings = [Holding(symbol=h.symbol, value=None) for h in current_holdings]
+    else:
+        holdings: list[Holding] = []
+        for sym, val in zip(symbols, values):
+            sym = (sym or "").strip().upper()
+            if not sym:
+                continue
+            value = float(val) if val and val.strip() else None
+            holdings.append(Holding(symbol=sym, value=value))
 
     if not holdings:
         return templates.TemplateResponse(
@@ -189,14 +286,12 @@ async def portfolio_optimize(request: Request):
 
     req = OptimizeRequest(holdings=holdings, objective=objective)
     try:
-        import anyio
-
         result = await anyio.to_thread.run_sync(optimize, req)
     except NoDataError as e:
         return templates.TemplateResponse(
             request, "partials/portfolio_results.html", {"available": False, "reason": str(e)}
         )
-    except Exception as e:  # surface optimizer failures inline
+    except Exception as e:
         return templates.TemplateResponse(
             request,
             "partials/portfolio_results.html",

@@ -10,6 +10,8 @@ from ..cache import with_cache
 from ..config import FINNHUB_API_KEY
 from ..schemas import Fundamentals, NewsItem, Quote, TickerData
 from . import finnhub, yahoo
+from .sec import fetch_financials
+from .macro import fetch_macro
 
 # Intraday TTL: repeated research/discovery within the window reuse one fetch.
 DATA_TTL_MS = 15 * 60_000
@@ -51,12 +53,17 @@ async def fetch_ticker_data(symbol: str, *, fresh: bool = False) -> TickerData:
 async def _fetch_uncached(symbol: str) -> TickerData:
     use_finnhub = bool(FINNHUB_API_KEY)
 
-    yahoo_quote, fundamentals, yahoo_news, finnhub_quote, finnhub_news = await asyncio.gather(
+    (
+        yahoo_quote, fundamentals, yahoo_news, finnhub_quote, finnhub_news,
+        financials, macro,
+    ) = await asyncio.gather(
         _safe_thread(lambda: yahoo.fetch_quote(symbol), None),
         _safe_thread(lambda: yahoo.fetch_fundamentals(symbol), Fundamentals()),
         _safe_thread(lambda: yahoo.fetch_news(symbol), []),
         _safe(finnhub.fetch_quote(symbol), None) if use_finnhub else _none(),
         _safe(finnhub.fetch_news(symbol), []) if use_finnhub else _empty(),
+        _safe(fetch_financials(symbol), None),
+        _safe(fetch_macro(), None),
     )
 
     # Prefer Finnhub's live quote when available, else fall back to Yahoo.
@@ -79,4 +86,6 @@ async def _fetch_uncached(symbol: str) -> TickerData:
         quote=quote,
         fundamentals=fundamentals,
         news=news,
+        financials=financials,
+        macro=macro,
     )
