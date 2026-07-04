@@ -43,6 +43,34 @@ def init_db() -> None:
             )
             """
         )
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calls (
+                id         INTEGER PRIMARY KEY,
+                symbol     TEXT NOT NULL,
+                as_of      TEXT NOT NULL,
+                mode       TEXT NOT NULL,
+                stance     TEXT,
+                confidence TEXT NOT NULL,
+                price      REAL,
+                revised    INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (symbol, as_of, mode)
+            )
+            """
+        )
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS call_outcomes (
+                call_id      INTEGER NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
+                horizon      TEXT NOT NULL,
+                fwd_return   REAL NOT NULL,
+                bench_return REAL NOT NULL,
+                evaluated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (call_id, horizon)
+            )
+            """
+        )
 
 
 def list_items() -> list[WatchItem]:

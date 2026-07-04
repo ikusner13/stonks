@@ -5,13 +5,17 @@ A cache hit makes ZERO LLM and (via the data cache) zero network calls.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from ..cache import with_cache
 from ..data import fetch_ticker_data
+from ..ledger import record_call
 from ..schemas import ResearchResult
 from .critic import ReviewMode, research_ticker_reviewed
 from .usage import annotate_run
+
+logger = logging.getLogger(__name__)
 
 # Reports are stable for a trading day; re-opening one costs $0. The symbol+day
 # key already scopes it, so a long TTL is fine.
@@ -39,4 +43,9 @@ async def research_ticker_cached(
     result = ResearchResult.model_validate(value)
     if hit:
         annotate_run(cached=True, revised=result.revised)
+    else:
+        try:
+            record_call(result, mode)
+        except Exception:
+            logger.exception("failed to record research call")
     return result

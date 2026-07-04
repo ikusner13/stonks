@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Confidence = Literal["low", "medium", "high"]
 Severity = Literal["low", "medium", "high"]
+Stance = Literal["bullish", "neutral", "bearish"]
 
 # --- Market data ------------------------------------------------------------
 
@@ -101,6 +102,14 @@ class TickerReport(BaseModel):
     )
     confidence: Confidence = Field(
         description="Confidence in this report given the completeness of the provided data."
+    )
+    stance: Stance | None = Field(
+        default=None,
+        description=(
+            "The directional view implied by this report over roughly the next "
+            "quarter, weighing the bull and bear cases: bullish, neutral, or "
+            "bearish. Derived only from the provided data."
+        ),
     )
 
 

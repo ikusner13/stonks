@@ -1,0 +1,86 @@
+{% macro pct_or_dash(value) -%}
+  {%- if value is not none -%}{{ value | pct }}{%- else -%}—{%- endif -%}
+{%- endmacro %}
+
+<section class="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+  <div class="rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] p-4">
+    <p class="text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Calls</p>
+    <p class="mt-2 text-2xl font-bold">{{ summary.total_calls }}</p>
+    <p class="text-xs text-[var(--sea-ink-soft)]">{{ summary.scored_calls }} scored</p>
+  </div>
+  {% for h in horizons %}
+  <div class="rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] p-4">
+    <p class="text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">{{ h }}</p>
+    <p class="mt-2 text-2xl font-bold">
+      {{ pct_or_dash(summary.hit_rate.get(h)) }}
+      {% if summary.n_directional.get(h) is not none %}
+      <span class="text-sm font-semibold text-[var(--sea-ink-soft)]">· n={{ summary.n_directional.get(h) }}</span>
+      {% endif %}
+    </p>
+    <p class="text-xs text-[var(--sea-ink-soft)]">
+      avg excess {{ pct_or_dash(summary.avg_excess.get(h)) }}
+    </p>
+  </div>
+  {% endfor %}
+</section>
+
+<section class="mb-8 rounded-xl border border-[var(--line)] p-4">
+  <h2 class="mb-3 text-sm font-semibold">1m hit rate by confidence</h2>
+  <div class="flex flex-wrap gap-2 text-sm">
+    {% for confidence in ["low", "medium", "high"] %}
+    <span class="rounded-full border border-[var(--line)] px-3 py-1">
+      {{ confidence }}:
+      <span class="font-semibold">{{ pct_or_dash(summary.hit_rate_by_confidence.get(confidence)) }}</span>
+    </span>
+    {% endfor %}
+  </div>
+</section>
+
+<section>
+  <h2 class="mb-4 text-lg font-semibold">Recent calls</h2>
+  {% if not calls %}
+  <p class="text-sm text-[var(--sea-ink-soft)]">No calls recorded yet.</p>
+  {% else %}
+  <div class="demo-table-shell">
+    <table class="demo-table text-sm">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Symbol</th>
+          <th>Mode</th>
+          <th>Stance</th>
+          <th>Confidence</th>
+          <th>Price</th>
+          {% for h in horizons %}<th>{{ h }} fwd / excess</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for call in calls %}
+        <tr>
+          <td class="whitespace-nowrap">{{ call.as_of }}</td>
+          <td><a href="/research/{{ call.symbol }}" class="font-semibold no-underline">{{ call.symbol }}</a></td>
+          <td>{{ call.mode }}</td>
+          <td>{{ call.stance if call.stance else "—" }}</td>
+          <td>{{ call.confidence }}</td>
+          <td>{{ "$%.2f" | format(call.price) if call.price is not none else "—" }}</td>
+          {% for h in horizons %}
+          {% set outcome = call.outcomes.get(h) %}
+          {% if outcome %}
+          {% set hit = ledger_hit(call, outcome) %}
+          <td class="whitespace-nowrap">
+            <span>{{ outcome.fwd_return | pct }} / {{ outcome.excess | pct }}</span>
+            {% if hit is not none %}
+            <span class="{{ 'text-emerald-500' if hit else 'text-red-500' }}">{{ "✓" if hit else "✗" }}</span>
+            {% endif %}
+          </td>
+          {% else %}
+          <td class="text-[var(--sea-ink-soft)]">—</td>
+          {% endif %}
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Ledger · Stock Research{% endblock %}
+{% block content %}
+<main class="page-wrap px-4 pb-12 pt-10">
+  <h1 class="mb-1 text-3xl font-bold tracking-tight">Ledger</h1>
+  <p class="mb-8 text-sm text-[var(--sea-ink-soft)]">Research calls scored against forward returns versus SPY.</p>
+
+  <div
+    hx-get="/ledger/table"
+    hx-trigger="load"
+    hx-swap="innerHTML"
+  >
+    <p class="text-sm text-[var(--sea-ink-soft)]">Checking matured calls and loading the ledger…</p>
+  </div>
+</main>
+{% endblock %}

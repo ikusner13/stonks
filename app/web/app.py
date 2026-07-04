@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db
+from ..ledger import HORIZON_DAYS, evaluate_pending, hit_for_stance, list_calls, summarize
 from ..llm.discovery import discover_ideas
 from ..llm.pipeline import research_ticker_cached
 from ..llm.usage import format_event, with_run
@@ -61,9 +62,14 @@ def _pct(n: float) -> str:
     return f"{n * 100:.1f}%"
 
 
+def _ledger_hit(call, outcome) -> bool | None:
+    return hit_for_stance(call.stance, outcome.excess)
+
+
 templates.env.filters["fmt_num"] = _fmt_num
 templates.env.filters["fmt_cap"] = _fmt_cap
 templates.env.filters["pct"] = _pct
+templates.env.globals["ledger_hit"] = _ledger_hit
 
 app = FastAPI(title="Stock Research")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -154,6 +160,31 @@ def watchlist_toggle(request: Request, symbol: str):
 def watchlist_remove(symbol: str):
     db.remove(symbol.upper())
     return HTMLResponse("")  # row is swapped out via hx-swap="outerHTML"
+
+
+# --- Ledger -----------------------------------------------------------------
+
+
+@app.get("/ledger", response_class=HTMLResponse)
+def ledger_page(request: Request):
+    return templates.TemplateResponse(
+        request, "ledger.html", {"active": "ledger", "horizons": list(HORIZON_DAYS)}
+    )
+
+
+@app.get("/ledger/table", response_class=HTMLResponse)
+async def ledger_table(request: Request):
+    await evaluate_pending()
+    calls = list_calls()
+    return templates.TemplateResponse(
+        request,
+        "partials/ledger_table.html",
+        {
+            "calls": calls,
+            "summary": summarize(calls),
+            "horizons": list(HORIZON_DAYS),
+        },
+    )
 
 
 # --- Portfolio --------------------------------------------------------------
