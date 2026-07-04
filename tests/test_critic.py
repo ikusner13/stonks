@@ -1,4 +1,5 @@
 from app.llm.critic import check_fabrication
+from app.indicators.schemas import Indicator, IndicatorScorecard
 from app.schemas import (
     Fundamentals,
     KeyMetric,
@@ -18,6 +19,28 @@ DATA = TickerData(
     ),
     news=[NewsItem(title="Apple ships 19.83 billion units", url="http://x", published_at="", source="wire")],
 )
+
+
+def scorecard(value: float = 0.1234) -> IndicatorScorecard:
+    return IndicatorScorecard(
+        symbol="AAPL",
+        asof="2026-06-21T00:00:00Z",
+        indicators=[
+            Indicator(
+                key="momentum_6m",
+                label="6 month momentum",
+                value=value,
+                unit="pct",
+                signal="bullish",
+                detail=f"{value:+.1%} over 6 months",
+            )
+        ],
+        bullish=1,
+        bearish=0,
+        neutral=0,
+        unavailable=0,
+        data_completeness=1.0,
+    )
 
 
 def report(**over) -> TickerReport:
@@ -45,40 +68,40 @@ def test_passes_when_every_figure_traces():
         ],
         valuation_context="A forward P/E of 28.1 looks rich.",
     )
-    assert check_fabrication(r, DATA).passed
+    assert check_fabrication(r, DATA, scorecard()).passed
 
 
 def test_passes_with_no_numeric_claims():
-    assert check_fabrication(report(), DATA).passed
+    assert check_fabrication(report(), DATA, scorecard()).passed
 
 
 def test_flags_keymetric_absent_from_ground_truth():
     r = report(key_metrics=[KeyMetric(label="PEG", value="1.87", interpretation="")])
-    res = check_fabrication(r, DATA)
+    res = check_fabrication(r, DATA, scorecard())
     assert not res.passed
     assert "1.87" in res.details
 
 
 def test_flags_fabricated_valuation_context():
     r = report(valuation_context="Trading at a wild 99.9 P/E.")
-    res = check_fabrication(r, DATA)
+    res = check_fabrication(r, DATA, scorecard())
     assert not res.passed
     assert "99.9" in res.details
 
 
 def test_grounds_percentage_against_stored_fraction():
     r = report(key_metrics=[KeyMetric(label="Margin", value="25%", interpretation="")])
-    assert check_fabrication(r, DATA).passed
+    assert check_fabrication(r, DATA, scorecard()).passed
 
 
 def test_grounds_spelled_out_magnitude_within_tolerance():
     r = report(key_metrics=[KeyMetric(label="Units", value="$19.8B", interpretation="")])
-    assert check_fabrication(r, DATA).passed
+    assert check_fabrication(r, DATA, scorecard()).passed
 
 
 def test_treats_news_headline_numbers_as_allowed():
     r = report(key_metrics=[KeyMetric(label="Units", value="19.83 billion", interpretation="")])
-    assert check_fabrication(r, DATA).passed
+    assert check_fabrication(r, DATA, scorecard()).passed
 
 
 def test_flags_fabricated_dollar_figure_in_prose():
@@ -88,7 +111,7 @@ def test_flags_fabricated_dollar_figure_in_prose():
             bear=[],
         )
     )
-    res = check_fabrication(r, DATA)
+    res = check_fabrication(r, DATA, scorecard())
     assert not res.passed
     assert "thesis.bull[0]" in res.details
     assert "9900000000" in res.details
@@ -99,9 +122,14 @@ def test_prose_filters_common_non_financial_numbers():
         summary="The 2025 outlook references the latest 10-K.",
         thesis=Thesis(bull=["This remains a top 3 brand."], bear=[]),
     )
-    assert check_fabrication(r, DATA).passed
+    assert check_fabrication(r, DATA, scorecard()).passed
 
 
 def test_grounded_number_in_summary_passes():
     r = report(summary="Revenue is $390B and profit margin is 25%.")
-    assert check_fabrication(r, DATA).passed
+    assert check_fabrication(r, DATA, scorecard()).passed
+
+
+def test_scorecard_value_is_allowed_in_indicator_view():
+    r = report(indicator_view="6 month momentum is 12.34%.")
+    assert check_fabrication(r, DATA, scorecard()).passed

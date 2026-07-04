@@ -10,6 +10,7 @@ from typing import Literal
 
 from pydantic_ai import Agent, CachePoint
 
+from ..indicators.schemas import IndicatorScorecard
 from ..schemas import Critique, FabricationCheck, TickerData, TickerReport
 from .provider import premium_model, premium_settings, workhorse_model, workhorse_settings
 from .research import research_ticker
@@ -75,7 +76,7 @@ def _prose_numbers(text: str) -> list[list[float]]:
     return out
 
 
-def _collect_allowed(data: TickerData) -> list[float]:
+def _collect_allowed(data: TickerData, scorecard: IndicatorScorecard) -> list[float]:
     """Every number anywhere in the ground truth — quote, fundamentals, and figures
     quoted in news HEADLINES — is fair for the report to restate. Timestamps and
     URLs are excluded to avoid spurious date-fragment matches."""
@@ -92,6 +93,7 @@ def _collect_allowed(data: TickerData) -> list[float]:
         allowed.extend(data.financials.numeric_values())
     if data.macro:
         allowed.extend(data.macro.numeric_values())
+    allowed.extend(scorecard.numeric_values())
     return allowed
 
 
@@ -109,8 +111,10 @@ def _is_grounded(n: float, allowed: list[float], tol: float = 0.02) -> bool:
     return False
 
 
-def check_fabrication(report: TickerReport, data: TickerData) -> FabricationCheck:
-    allowed = _collect_allowed(data)
+def check_fabrication(
+    report: TickerReport, data: TickerData, scorecard: IndicatorScorecard
+) -> FabricationCheck:
+    allowed = _collect_allowed(data, scorecard)
     candidates: list[tuple[str, list[float]]] = []
     for i, m in enumerate(report.key_metrics):
         for values in parse_numbers(m.value):
@@ -119,6 +123,8 @@ def check_fabrication(report: TickerReport, data: TickerData) -> FabricationChec
             candidates.append((f"key_metrics[{i}].interpretation", values))
     for values in parse_numbers(report.valuation_context):
         candidates.append(("valuation_context", values))
+    for values in _prose_numbers(report.indicator_view):
+        candidates.append(("indicator_view", values))
     for values in _prose_numbers(report.summary):
         candidates.append(("summary", values))
     for i, text in enumerate(report.thesis.bull):
@@ -164,13 +170,15 @@ ABSOLUTE RULES (both tasks):
 
 Follow the task instructions in the user message exactly."""
 
-AUDIT_GUIDANCE = """Audit for: support (is every qualitative claim grounded?), traceability (is every number present in the ground truth? treat the fabrication hint as authoritative for hard fabrications, then look for any it missed), balance (fair bull/bear?), completeness (material risks omitted?), calibration (confidence justified by data completeness?). Report concrete, actionable issues; reserve "high" severity for fabricated numbers or materially misleading claims."""
+AUDIT_GUIDANCE = """Audit for: support (is every qualitative claim grounded?), traceability (is every number present in the ground truth? treat the fabrication hint as authoritative for hard fabrications, then look for any it missed), balance (fair bull/bear?), completeness (material risks omitted?), calibration (confidence justified by data completeness?), indicator engagement (does indicator_view address every non-unavailable signal and its conflicts?). Report concrete, actionable issues; reserve "high" severity for fabricated numbers or materially misleading claims."""
 
 
-def _ground_truth(data: TickerData) -> str:
+def _ground_truth(data: TickerData, scorecard: IndicatorScorecard) -> str:
     return (
         "GROUND TRUTH (the ONLY numbers you may use):\n```json\n"
         + json.dumps(data.model_dump(), indent=2)
+        + "\n```\n\nINDICATOR SCORECARD (deterministic, computed by code):\n```json\n"
+        + json.dumps(scorecard.model_dump(), indent=2)
         + "\n```"
     )
 
@@ -198,9 +206,14 @@ def _get_revise_agent() -> Agent[None, TickerReport]:
 
 
 async def _run_critique(
-    report: TickerReport, data: TickerData, gt: str, call_site: str, mode: ReviewMode
+    report: TickerReport,
+    data: TickerData,
+    scorecard: IndicatorScorecard,
+    gt: str,
+    call_site: str,
+    mode: ReviewMode,
 ) -> Critique:
-    fab = check_fabrication(report, data)
+    fab = check_fabrication(report, data, scorecard)
     hint = "PASSED" if fab.passed else f"FAILED — {fab.details}"
     tail = f"""TASK: AUDIT the report below against the ground truth above.
 
@@ -234,18 +247,22 @@ REPORT UNDER REVIEW:
     return critique
 
 
-async def critique_report(report: TickerReport, data: TickerData) -> Critique:
+async def critique_report(
+    report: TickerReport, data: TickerData, scorecard: IndicatorScorecard
+) -> Critique:
     """Single-shot critique (tests / direct callers)."""
-    return await _run_critique(report, data, _ground_truth(data), "critique", "thorough")
+    return await _run_critique(
+        report, data, scorecard, _ground_truth(data, scorecard), "critique", "thorough"
+    )
 
 
 async def research_ticker_reviewed(
-    symbol: str, data: TickerData, mode: ReviewMode = "thorough"
+    symbol: str, data: TickerData, scorecard: IndicatorScorecard, mode: ReviewMode = "thorough"
 ) -> tuple[TickerReport, Critique, bool]:
-    gt = _ground_truth(data)  # one cacheable prefix shared by every call below
+    gt = _ground_truth(data, scorecard)  # one cacheable prefix shared by every call below
 
-    report = await research_ticker(symbol, data)
-    critique = await _run_critique(report, data, gt, "critique", mode)
+    report = await research_ticker(symbol, data, scorecard)
+    critique = await _run_critique(report, data, scorecard, gt, "critique", mode)
 
     # Cheap mode stops here: workhorse critique, no premium revision.
     needs_revision = mode == "thorough" and (
@@ -273,6 +290,8 @@ AUDIT ISSUES TO FIX:
     )
     revised_report: TickerReport = result.output
 
-    final_critique = await _run_critique(revised_report, data, gt, "re-critique", mode)
+    final_critique = await _run_critique(
+        revised_report, data, scorecard, gt, "re-critique", mode
+    )
     annotate_run(revised=True)
     return revised_report, final_critique, True

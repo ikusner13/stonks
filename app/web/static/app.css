@@ -373,6 +373,71 @@ pre code {
   font-weight: 700;
 }
 
+.scorecard {
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--surface-strong) 72%, transparent);
+  padding: 1rem;
+}
+
+.scorecard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.scorecard-table th,
+.scorecard-table td {
+  border-top: 1px solid var(--line);
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.scorecard-table th {
+  color: var(--sea-ink-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sig-badge,
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.sig-bullish {
+  border-color: rgba(16, 145, 91, 0.32);
+  background: rgba(16, 145, 91, 0.11);
+}
+
+.sig-bearish,
+.source-error {
+  border-color: rgba(196, 71, 71, 0.32);
+  background: rgba(196, 71, 71, 0.11);
+}
+
+.sig-neutral,
+.source-ok {
+  border-color: var(--chip-line);
+  background: var(--chip-bg);
+}
+
+.sig-unavailable,
+.source-empty,
+.source-disabled {
+  border-color: rgba(113, 128, 128, 0.24);
+  background: rgba(113, 128, 128, 0.1);
+  color: var(--sea-ink-soft);
+}
+
 .demo-code-block {
   border: 1px solid var(--line);
   border-radius: 1rem;

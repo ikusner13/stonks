@@ -39,6 +39,8 @@
   </div>
 </div>
 
+{% include "partials/scorecard.html" %}
+
 <section class="mt-6">
   <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Summary</h2>
   <p class="text-sm">{{ report.summary }}</p>
@@ -123,6 +125,13 @@
   <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Valuation context</h2>
   <p class="text-sm">{{ report.valuation_context }}</p>
 </section>
+
+{% if report.indicator_view %}
+<section class="mt-6">
+  <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Indicator read</h2>
+  <p class="text-sm">{{ report.indicator_view }}</p>
+</section>
+{% endif %}
 
 <section class="mt-6">
   <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Risks</h2>

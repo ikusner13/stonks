@@ -97,6 +97,14 @@ class TickerReport(BaseModel):
             "without inventing numbers."
         )
     )
+    indicator_view: str = Field(
+        default="",
+        description=(
+            "How the quantitative indicator scorecard reads overall: which signals "
+            "agree, which conflict, and what evidence would resolve each conflict. "
+            "Reference indicators by their label."
+        ),
+    )
     risks: list[str] = Field(description="Key risks to the investment thesis.")
     things_to_investigate: list[str] = Field(
         description="Open questions or data points a reader should research further."
@@ -175,11 +183,16 @@ class ResearchResult(BaseModel):
     report: TickerReport
     critique: Critique
     revised: bool
+    scorecard: IndicatorScorecard | None = None
+    confidence_assessment: ConfidenceAssessment | None = None
 
 
 # Deferred imports to avoid circular dependency (data/ imports schemas).
 # model_rebuild() resolves the forward references in TickerData.
 from .data.sec import SecFinancials  # noqa: E402
 from .data.macro import MacroContext  # noqa: E402
+from .indicators.schemas import IndicatorScorecard  # noqa: E402
+from .indicators.confidence import ConfidenceAssessment  # noqa: E402
 
 TickerData.model_rebuild()
+ResearchResult.model_rebuild()
