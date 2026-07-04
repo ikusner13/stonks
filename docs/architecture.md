@@ -99,22 +99,29 @@ forward references those imports satisfy.
      `min(report.confidence, critique.suggested_confidence, assessment.computed)`.
    - The full `ResearchResult` is cached under `report`.
 3. The usage event for this request is formatted and printed to stderr.
-4. `value_holdings()` runs again (uncached, always live) to find this
-   symbol's current portfolio weight, if held.
+4. `value_holdings()` runs again — the function itself has no cache and always
+   recomputes, but each holding's price still comes from `fetch_ticker_data`,
+   which is subject to the 15-minute `data` cache, so "recomputed" doesn't
+   mean the price is always freshly fetched — to find this symbol's current
+   portfolio weight, if held.
 5. `suggest_position_size` computes a sizing band from the effective
    confidence, portfolio total value, and current weight.
 6. Renders `partials/research_report.html` with the result, mode, watchlist
    state, and sizing guidance.
 7. `InsufficientDataError` → a "no market data found" error partial.
    Any other exception → logged full traceback server-side, generic error
-   partial with a retry link that includes `fresh=1`.
+   partial with a retry link that echoes the *original* request's `mode` and
+   `fresh` values — it is not forced to `fresh=1`; a request made without
+   `fresh` retries the same, cache-eligible way.
 
 ### (b) The portfolio page and its four HTMX panels
 
 `GET /portfolio` renders the page shell synchronously: `value_holdings()`
-(live valuation — always uncached), `assess_portfolio_health` computed inline
-from that valuation, and the holdings table — all present in the initial
-HTML. Three of the four panels below are then loaded independently:
+(always recomputed — though each holding's price is subject to the 15-minute
+`data` cache, so this isn't a guaranteed-fresh network fetch), `assess_portfolio_health`
+computed inline from that valuation, and the holdings table — all present in
+the initial HTML. Three of the four panels below are then loaded
+independently:
 
 - **A) Holdings** — rendered inline on page load (no HTMX round-trip needed
   for the initial view). Add/remove (`POST /portfolio/holdings`,
@@ -126,9 +133,9 @@ HTML. Three of the four panels below are then loaded independently:
   page load, calling `compute_correlation_insight` (its own `correlation`-cache,
   §3) and swapping in `partials/portfolio_correlation.html`.
 - **C) Allocation backtest** — also lazy-loaded on `hx-trigger="load"`:
-  `GET /portfolio/performance` re-fetches `value_holdings()` (a second, fresh
-  valuation independent of the page-load one) and calls `compute_performance`
-  with the resulting weights.
+  `GET /portfolio/performance` recomputes `value_holdings()` again (independent
+  of the page-load call, same 15-minute price-cache caveat) and calls
+  `compute_performance` with the resulting weights.
 - **D) Optimizer & drift** — the only panel that isn't `hx-trigger="load"`; it
   fires on form submit (`POST /portfolio/optimize`), seeding from the submitted
   rows or, if the form is empty, from current holdings. `optimize()` runs in a
@@ -161,13 +168,20 @@ result back afterward, refreshing the TTL.
 
 ## Error-handling conventions
 
-- **Error partials over 500s.** Every web route that does real work
-  (research, discover, portfolio correlation/performance/tearsheet/optimize)
-  wraps its body in try/except. On failure it logs the full traceback via
-  `logger.exception` and returns a rendered `partials/error.html` fragment —
-  HTMX swaps this into the panel's target, so the rest of the page stays
-  intact. The user sees a short message ("X failed — see server logs") and,
-  where it makes sense, a retry link; never a raw stack trace or a bare 500.
+- **Error partials over 500s.** Every web route that does real work (research,
+  discover, portfolio correlation/performance/tearsheet) wraps its body in
+  try/except. On failure it logs the full traceback via `logger.exception`
+  and returns a rendered `partials/error.html` fragment — HTMX swaps this into
+  the panel's target, so the rest of the page stays intact. The user sees a
+  short message ("X failed — see server logs") and, where it makes sense, a
+  retry link; never a raw stack trace or a bare 500.
+  **`POST /portfolio/optimize` is the one exception to this pattern**: it
+  catches `NoDataError` and generic `Exception` separately, but neither branch
+  calls `logger.exception` (so a failure here leaves no server-side traceback),
+  and both render `partials/portfolio_results.html` with `available: False`
+  and a `reason` string built from the exception's own text (e.g.
+  `f"Optimization failed: {e}"`) — the raw exception message reaches the
+  browser directly, and there's no retry URL, unlike every other panel.
 - **Source-status capture.** Every external fetch in `app/data/` is wrapped by
   `_capture`, which turns an exception into a safe fallback value plus an
   `error` status entry, rather than letting it propagate — so one dead source
@@ -186,15 +200,17 @@ result back afterward, refreshing the TTL.
 
 - FastAPI route handlers are a mix of `def` and `async def`. Synchronous
   handlers (`index`, `research_page`, `favicon`, `watchlist_page`,
-  `watchlist_toggle`, `watchlist_remove`) are dispatched to Starlette's
-  worker threadpool automatically. Handlers that call into async pipelines
-  (`discover`, `research_report`, `portfolio_page`, the holdings/correlation/
-  performance/tearsheet/optimize routes) are `async def` and run directly on
-  the event loop.
+  `watchlist_toggle`, `watchlist_remove`, `portfolio_holdings_row`) are
+  dispatched to Starlette's worker threadpool automatically. Handlers that
+  call into async pipelines (`discover`, `research_report`, `portfolio_page`,
+  the holdings/correlation/performance/tearsheet/optimize routes) are
+  `async def` and run directly on the event loop.
 - Blocking libraries are explicitly offloaded, but via two different
   mechanisms depending on where the call lives: `asyncio.to_thread(...)` inside
-  `app/data/*` and `app/indicators/engine.py` (all the `yfinance`/`edgartools`/
-  `fredapi` calls), versus `anyio.to_thread.run_sync(...)` inside
+  `app/data/*`, `app/indicators/engine.py`, `app/portfolio/performance.py`
+  (`compute_performance`), and `app/portfolio/decision_support.py`
+  (`compute_correlation_insight`) — all the `yfinance`/`edgartools`/`fredapi`/
+  `quantstats_lumi` calls — versus `anyio.to_thread.run_sync(...)` inside
   `app/web/app.py` for `optimize()` and `tearsheet_html()`. Both correctly move
   blocking work off the event loop; the two APIs are simply not unified.
 - Pydantic AI's `agent.run()` calls are natively async (httpx under the hood)

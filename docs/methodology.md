@@ -30,9 +30,10 @@ with one of four values:
 
 The quote and news fields are each backed by *two* sources (Finnhub + Yahoo);
 their status is derived after merging: `quote` is `ok` if either producer
-returned one, `error` only if both attempts raised, else `empty`. `news` is
-deduplicated by URL (Finnhub entries first) and capped at 15 items; its status
-follows the same ok/error/empty logic over the merged list.
+returned one; if neither did, it's `error` if *either* attempt raised (not
+only if both did), else `empty`. `news` is deduplicated by URL (Finnhub
+entries first) and capped at 15 items; its status follows the same
+ok/error/empty logic over the merged list.
 
 **Failures are never cached as failures.** `with_cache` (`app/cache.py`) only
 persists a result when `produce()` returns a non-`None` value; anything that
@@ -120,19 +121,27 @@ news, SEC financials, macro, source statuses) plus the full
    Cheap mode always stops after step 2, regardless of what the audit finds.
 
 The ground-truth JSON prefix is built once per report and reused, unchanged,
-across every call in the chain, with an OpenRouter/Anthropic `CachePoint(ttl="1h")`
-inserted after it — so steps 2–4 hit the cached-token price for that shared
-prefix instead of paying full input price each time. This is the main lever
-behind thorough mode's cost (§ Cost profile in the README) staying in the
-$0.10–0.40 range rather than scaling linearly with the number of calls.
+across every **critic-chain** call — audit, revise, and re-critique (steps
+2–4) — with an OpenRouter/Anthropic `CachePoint(ttl="1h")` inserted after it,
+so those calls hit the cached-token price for that shared prefix instead of
+paying full input price each time. The initial draft (step 1, `research_ticker`)
+builds its own separate prompt from scratch and does not use `CachePoint` —
+the shared-prefix caching only kicks in once the critic chain starts. This is
+the main lever behind thorough mode's cost (§ Cost profile in the README)
+staying in the $0.10–0.40 range rather than scaling linearly with the number
+of calls.
 
 **Programmatic fabrication check** (`check_fabrication` in `app/llm/critic.py`).
 Runs before every audit/re-critique call, independent of the LLM.
-- **Scope** — scans these report fields for numeric tokens: `key_metrics[*].value`
-  (strict numeric parse) and `key_metrics[*].interpretation`, `valuation_context`,
-  `indicator_view`, `summary`, `thesis.bull[*]`, `thesis.bear[*]`, `risks[*]`,
-  `things_to_investigate[*]` (prose parse, which additionally ignores bare
-  integers 0–10 and 4-digit years 1900–2100 to skip counts and dates).
+- **Scope** — scans report fields for numeric tokens via two different
+  parsers. **Strict parse** (`key_metrics[*].value`, `valuation_context`):
+  every numeric token counts, including bare integers and years. **Lenient
+  prose parse** (`key_metrics[*].interpretation`, `indicator_view`, `summary`,
+  `thesis.bull[*]`, `thesis.bear[*]`, `risks[*]`, `things_to_investigate[*]`):
+  ignores bare integers 0–10 and 4-digit years 1900–2100 (so counts and dates
+  in free text aren't flagged as figures), and also skips any token
+  immediately followed by `-K` or `-Q` (case-insensitive) so a "10-K"/"10-Q"
+  filing reference isn't parsed as the number 10.
 - **Allowed set** — every number found in `fundamentals`, `quote`, SEC
   financials, macro context, indicator scorecard values, and news *headlines*
   (not article bodies, and never timestamps/URLs).
@@ -206,8 +215,12 @@ quote contributes nothing to any total and its symbol is listed in
 `unpriced_symbols` (it's still shown in the table, with `market_value: null`).
 Cost/P&L additionally require `avg_cost` to have been recorded — omit it and
 that holding is excluded from cost/P&L totals even when priced. Per-holding
-`weight` is `market_value / total_value` and is only computed once every
-holding's price is known.
+`weight` is `market_value / total_value` for every *priced* holding as soon
+as `total_value > 0` — an unpriced holding leaves only its own weight `null`
+and does not block the others from getting one. These per-holding weights
+are what the Health and Allocation Backtest panels consume; Correlation
+instead takes the raw holdings symbol list and fetches its own independent
+return history, without reference to weight at all.
 
 **Allocation backtest** (`app/portfolio/performance.py::compute_performance`).
 
