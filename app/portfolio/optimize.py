@@ -107,6 +107,9 @@ def _current_weights(holdings: list[Holding], available: list[str]) -> dict[str,
 
 
 def optimize(req: OptimizeRequest) -> OptimizeResult:
+    """Mean-variance optimal weights (max-Sharpe or min-risk) plus, when
+    current holdings carry a value, the current-vs-optimal comparison and an
+    efficient frontier. The per-asset cap relaxes to ``1/n`` if infeasible."""
     requested = list(dict.fromkeys(h.symbol for h in req.holdings))  # dedupe, keep order
     prices, excluded = _fetch_prices(requested, req.lookback_days)
     available = list(prices.columns)

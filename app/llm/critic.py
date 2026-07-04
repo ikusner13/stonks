@@ -114,6 +114,9 @@ def _is_grounded(n: float, allowed: list[float], tol: float = 0.02) -> bool:
 def check_fabrication(
     report: TickerReport, data: TickerData, scorecard: IndicatorScorecard
 ) -> FabricationCheck:
+    """Flag any number in the report that doesn't match (within 2% magnitude
+    tolerance) some number in the ground truth. Magnitude-only: it cannot
+    tell whether a matching number is attached to the right claim."""
     allowed = _collect_allowed(data, scorecard)
     candidates: list[tuple[str, list[float]]] = []
     for i, m in enumerate(report.key_metrics):
@@ -259,6 +262,10 @@ async def critique_report(
 async def research_ticker_reviewed(
     symbol: str, data: TickerData, scorecard: IndicatorScorecard, mode: ReviewMode = "thorough"
 ) -> tuple[TickerReport, Critique, bool]:
+    """Draft, then audit; in thorough mode, revise and re-critique if the
+    audit found fabrication or a medium/high-severity issue. Cheap mode always
+    stops after a single workhorse-model self-audit. Returns
+    ``(report, critique, revised)``."""
     gt = _ground_truth(data, scorecard)  # one cacheable prefix shared by every call below
 
     report = await research_ticker(symbol, data, scorecard)

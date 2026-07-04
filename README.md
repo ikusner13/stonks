@@ -1,80 +1,138 @@
 # Stock Research
 
-A personal LLM-driven equity-research assistant. **Fully Python**: FastAPI +
-HTMX frontend, [Pydantic AI](https://ai.pydantic.dev) over OpenRouter for the
-LLM work, `yfinance`/Finnhub for market data, and `skfolio` for portfolio
-optimization (all in one process — no sidecar).
+An AI-aided equity research and portfolio decision-support tool. It fetches
+real market data, computes a deterministic indicator scorecard in code, and
+uses an LLM to turn that ground truth into a readable research report — with a
+skeptical critic pass and a programmatic fabrication check to catch invented
+numbers. A portfolio page adds mean-variance optimization, a historical
+allocation backtest, and plain-language decision-support signals (concentration,
+correlation, drift, position sizing).
 
-## What it does
+**What this is not**: it does not place orders, hold custody of money, or give
+investment advice. Every number is either fetched from a real source or
+computed by code you can read; every LLM output is grounded against that data
+and checked before it reaches the page. The human using it makes every trade
+decision — the app's job stops at giving that human better-organized evidence.
 
-- **Discover** — describe an investment goal; an LLM proposes a screen / theme,
-  candidates are validated against real market data (hallucinated tickers
-  dropped, numeric filters enforced in code), then annotated with rationales.
-- **Research** — deep-dive a ticker through a *research → critic → revise* chain.
-  A programmatic fabrication check plus a skeptical LLM critic guard against
-  invented numbers; a cached ground-truth prefix keeps the critic chain cheap.
-- **Portfolio** — mean-variance optimization (max-Sharpe / min-risk) over
-  historical returns, with an efficient frontier and current-vs-optimal compare.
-- **Portfolio Health & Trade Decision Support** — a beginner-friendly section on
-  the Portfolio page that adds *concentration risk* (% in top 1 / 3 / 5 holdings
-  with a plain-language diversification note), *hidden concentration* (pairwise
-  return correlation flags holdings that move together, so ten lockstep names
-  aren't mistaken for real diversification), *allocation drift signals* (which
-  positions sit >5% above/below the optimizer's target, with "trim X / add to Y"
-  prompts), and *position-sizing guidance* (a conservative size range scaled by a
-  research report's confidence, shown as % of portfolio and ≈ dollars). All of it
-  is deterministic, grounded in existing data, and clearly labeled decision
-  support — never advice, and no order placement.
-- **Watchlist** — server-side (SQLite); positions prefill the portfolio page.
+For how the app decides anything — indicator formulas, the LLM grounding
+contract, confidence scoring, portfolio math — see
+**[docs/methodology.md](docs/methodology.md)**. For how it's built — module
+map, request traces, caching, concurrency — see
+**[docs/architecture.md](docs/architecture.md)**. For running it, env vars,
+and troubleshooting, see **[docs/operations.md](docs/operations.md)**.
 
-## Setup
+## Quickstart
 
 ```bash
-cp .env.example .env   # add OPENROUTER_API_KEY (required), FINNHUB_API_KEY (optional)
+cp .env.example .env   # add OPENROUTER_API_KEY
 uv sync
-```
-
-## Run the web app
-
-```bash
 uv run uvicorn app.web.app:app --reload --port 8000
 # open http://localhost:8000
 ```
 
-## CLI
+### Environment keys
+
+| Key | Required? | Unlocks | Degrades to, if unset |
+| --- | --- | --- | --- |
+| `OPENROUTER_API_KEY` | **Required** | All LLM calls (research, critic, discovery) via OpenRouter. | Research and discovery fail outright; the web app still starts and logs a startup warning. |
+| `FINNHUB_API_KEY` | Optional | Real-time US quotes and company news, preferred over Yahoo's when present. | Falls back to Yahoo Finance for quotes and news; the Finnhub source keys are simply absent from `sources` rather than marked `error`. |
+| `FRED_API_KEY` | Optional | Macro context (fed funds rate, CPI YoY, 10y treasury, unemployment, GDP growth) injected into the research prompt. | Macro is skipped entirely (`sources.macro = "disabled"`) — the report has no macro section rather than a stale or empty one. |
+| `SEC_IDENTITY` | Optional | The contact email SEC EDGAR requires for XBRL financials (revenue, margins, debt, FCF). | Financials still fetch, attributed to a hardcoded fallback address — set your own for real use. |
+
+See [docs/operations.md](docs/operations.md) for the full env var table,
+including model overrides and cache/DB paths.
+
+### Running it
 
 ```bash
-uv run stocks research AAPL          # deep-dive (thorough critic chain)
-uv run stocks research AAPL --cheap  # workhorse critic, no revision
-uv run stocks research AAPL --fresh  # bypass data + report caches
+uv run uvicorn app.web.app:app --reload --port 8000   # web app, dev mode
+uv run stocks research AAPL                            # CLI: thorough research
+uv run stocks research AAPL --cheap                     # CLI: cheap mode
 uv run stocks discover "AI infrastructure under $100B market cap"
-uv run stocks usage                  # rolling cost / token summary
+uv run stocks usage                                     # rolling cost/token summary
 ```
 
-## Test
-
-```bash
-uv run pytest
-```
-
-## Docker
+Docker:
 
 ```bash
 docker build -t stocks . && docker run -p 8000:8000 --env-file .env -v stocks-data:/data stocks
 ```
 
-The `stocks-data` named volume holds the watchlist/holdings database and caches across rebuilds.
+The `-v stocks-data:/data` volume holds the SQLite DB (watchlist, holdings) and
+all file caches. **Without it, every container restart starts with an empty
+watchlist and portfolio** — nothing is lost that a re-fetch can't recover, but
+your saved holdings and watchlist entries are gone for good.
+
+## Feature tour
+
+- **Discover** — describe an investment goal in a sentence; an LLM proposes
+  either a predefined Yahoo screen or a list of thematic ticker candidates.
+  Every candidate is re-validated against real fetched data before it's shown
+  — hallucinated tickers are dropped, and any numeric filter in the goal
+  (market cap, P/E) is enforced in code, not trusted from the model.
+- **Research** — a full report for one ticker: summary, bull/bear thesis, key
+  metrics, an indicator-scorecard read, risks, and open questions.
+  - **Thorough mode** (default): workhorse-model draft → premium-model audit →
+    if the audit finds fabrication or a medium/high-severity issue, a premium
+    revision → a final premium re-critique. Confidence is clamped to the
+    lowest of what the report claims, what the critic will accept, and what
+    the data completeness supports.
+  - **Cheap mode**: workhorse draft, workhorse audit, no revision regardless
+    of what the audit finds. Cheaper and faster; the critic is the same model
+    that wrote the report, so it's a weaker check than thorough mode's
+    independent premium audit.
+- **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
+  any research report, and used to prefill the portfolio page.
+- **Portfolio** — holdings valuation, plus four decision-support panels:
+  - **Health**: concentration by top-1/3/5 holding weight, in plain language.
+  - **Correlation**: pairwise return correlation flags holdings that move
+    together — a source of hidden concentration position weights alone miss.
+  - **Allocation backtest**: CAGR/Sharpe/Sortino/volatility/max-drawdown for
+    your *current* weights held constant over history, against a benchmark.
+  - **Optimizer**: mean-variance optimal weights (max-Sharpe or min-risk) with
+    an efficient frontier, current-vs-optimal drift signals, and confidence-
+    scaled position-sizing guidance for new candidates.
+
+All of the above is deterministic and grounded in fetched or computed data —
+never advice, never an order.
+
+## Cost profile
+
+Each research report makes several LLM calls; approximate per-report cost:
+
+- **Cheap mode**: ≈ $0.01 — one workhorse draft, one workhorse audit.
+- **Thorough mode**: ≈ $0.10–0.40 — dominated by the premium critic/revise
+  chain (premium audit, and if triggered, a premium revision plus a second
+  premium re-critique), on top of the workhorse draft.
+
+Every LLM call's tokens, cache-read tokens, duration, and real USD cost (from
+OpenRouter usage accounting) are appended as one JSON line per run to
+`.cache/usage.jsonl`. Run `uv run stocks usage` for a rolling summary, or read
+the file directly. See [docs/operations.md](docs/operations.md) for the event
+shape.
+
+## Test
+
+```bash
+uv run pytest -q
+uv run ruff check
+```
 
 ## Layout
 
 ```
 app/
-  data/        market data (yfinance quotes/fundamentals/news, Finnhub, screener)
+  data/        market data (yfinance quotes/fundamentals/news, Finnhub, SEC/EDGAR, FRED, screener)
+  indicators/  deterministic indicator scorecard + confidence assessment
   llm/         Pydantic AI pipelines: research, critic, discovery, usage tracking
-  portfolio/   skfolio optimizer, holdings valuation, performance, decision_support
+  portfolio/   skfolio optimizer, holdings valuation, performance backtest, decision_support
   web/         FastAPI app, Jinja2 templates, HTMX partials, static assets
-  cache.py     file-based read-through KV (data + report caches)
+  cache.py     file-based read-through KV (data/sec/macro/report/scorecard/correlation caches)
   db.py        SQLite watchlist store
   schemas.py   Pydantic models / LLM structured-output contracts
   cli.py       Typer CLI
+docs/
+  methodology.md   how the app determines stock effectiveness — read before touching indicators or prompts
+  architecture.md  module map, request traces, caching, concurrency
+  operations.md    env vars, running, cost/usage, troubleshooting
 ```

@@ -1,3 +1,5 @@
+"""Completeness-weighted confidence grade, independent of the LLM's own claim."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel
@@ -15,6 +17,7 @@ class ConfidenceAssessment(BaseModel):
 
 
 def clamp_confidence(*grades: Confidence) -> Confidence:
+    """The lowest of the given grades — confidence can only be pulled down."""
     return min(grades, key=_ORDER.__getitem__)
 
 
@@ -25,6 +28,8 @@ def _cap(grade: Confidence, cap: Confidence) -> Confidence:
 def compute_confidence(
     data: TickerData, scorecard: IndicatorScorecard
 ) -> ConfidenceAssessment:
+    """Weight data completeness into a low/medium/high grade, then hard-cap it
+    to medium on any source error and to low if there's no quote at all."""
     reasons: list[str] = []
     completeness = 0.0
 

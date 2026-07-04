@@ -62,6 +62,10 @@ async def _empty() -> list[NewsItem]:
 
 
 async def fetch_ticker_data(symbol: str, *, fresh: bool = False) -> TickerData:
+    """Merged Yahoo + Finnhub + SEC + FRED ticker data, cached 15 min per symbol.
+
+    Per-source failures degrade to a safe fallback with ``sources[name] =
+    "error"`` rather than failing the whole call."""
     async def produce() -> dict:
         data = await _fetch_uncached(symbol, fresh=fresh)
         return data.model_dump()

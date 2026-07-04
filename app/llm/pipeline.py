@@ -21,6 +21,8 @@ REPORT_TTL_MS = 24 * 60 * 60_000
 
 
 class InsufficientDataError(RuntimeError):
+    """Raised when a symbol has neither a quote nor a market cap to research."""
+
     def __init__(self, symbol: str, sources: dict[str, str]):
         self.symbol = symbol
         self.sources = sources
@@ -34,6 +36,9 @@ def _trading_day() -> str:
 async def research_ticker_cached(
     symbol: str, mode: ReviewMode = "thorough", *, fresh: bool = False
 ) -> ResearchResult:
+    """Full research pipeline (data → scorecard → confidence → critic chain),
+    cached per symbol/day/mode for 24h. Raises ``InsufficientDataError``
+    (never cached) if there's no usable market data for ``symbol``."""
     sym = symbol.upper()
     key = f"{sym}:{_trading_day()}:{mode}"
 

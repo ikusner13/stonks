@@ -1,3 +1,7 @@
+"""Shared price-history fetch + cleaning, used by both the optimizer and the
+performance/correlation backtests.
+"""
+
 from __future__ import annotations
 
 from datetime import date, timedelta

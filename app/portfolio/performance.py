@@ -1,3 +1,9 @@
+"""Allocation backtest: current live weights replayed over historical returns.
+
+Answers "what would this allocation have returned held constant since X" —
+not the account's actual realized return (see docs/methodology.md §5).
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -116,6 +122,9 @@ async def compute_performance(
     lookback_days: int = 730,
     benchmark: str = "SPY",
 ) -> PerformanceMetrics | None:
+    """CAGR/Sharpe/Sortino/volatility/max-drawdown for ``weights`` held constant
+    over ``lookback_days``. ``None`` if fewer than 30 days of overlapping
+    return history are available."""
     return await asyncio.to_thread(_compute_sync, weights, lookback_days, benchmark)
 
 
@@ -146,4 +155,6 @@ def tearsheet_html(
     lookback_days: int = 730,
     benchmark: str = "SPY",
 ) -> str | None:
+    """Render a quantstats HTML tearsheet for ``weights``; ``None`` if there's
+    insufficient return history to compute one."""
     return _tearsheet_sync(weights, lookback_days, benchmark)

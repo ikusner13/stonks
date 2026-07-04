@@ -68,6 +68,8 @@ def _fetch_fred_sync(api_key: str) -> dict:
 
 
 async def fetch_macro(*, fresh: bool = False) -> MacroContext | None:
+    """Latest FRED macro series, cached 6h under a single global key. ``None``
+    if ``FRED_API_KEY`` is unset or every series fetch failed."""
     api_key = os.getenv("FRED_API_KEY")
     if not api_key:
         return None

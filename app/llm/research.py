@@ -35,6 +35,8 @@ def _get_agent() -> Agent[None, TickerReport]:
 async def research_ticker(
     symbol: str, data: TickerData, scorecard: IndicatorScorecard
 ) -> TickerReport:
+    """First-pass structured report from the workhorse model, grounded in
+    ``data`` and the deterministic ``scorecard``."""
     prompt = f"""Produce a structured research report for {symbol}.
 
 Below is the ONLY ground truth you may use. Treat it as authoritative and complete; do not supplement it with outside knowledge of specific numbers.

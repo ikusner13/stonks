@@ -1,3 +1,7 @@
+"""Deterministic indicator scorecard: 12 price/fundamental indicators computed
+in code (never by the LLM), each with a fixed bullish/bearish threshold.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -72,6 +76,9 @@ def compute_indicators(
     data: TickerData,
     days_to_earnings: int | None,
 ) -> list[Indicator]:
+    """Compute all 12 indicators; each becomes ``unavailable`` rather than a
+    guess when its required inputs (price rows, fundamentals, financials) are
+    missing."""
     indicators: list[Indicator] = []
 
     def momentum_12_1(series: pd.Series) -> Indicator:
@@ -370,6 +377,8 @@ def _fetch_days_to_earnings(symbol: str) -> int | None:
 async def compute_scorecard(
     symbol: str, data: TickerData, *, fresh: bool = False
 ) -> IndicatorScorecard:
+    """Fetch price history (+ SPY, + earnings date) and compute the scorecard,
+    cached per symbol per day (namespace ``scorecard``, 24h TTL)."""
     sym = symbol.upper()
     key = f"{sym}:{datetime.now(UTC).date().isoformat()}"
 

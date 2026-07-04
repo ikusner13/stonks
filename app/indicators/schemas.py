@@ -1,3 +1,5 @@
+"""Pydantic models for a single indicator and the full scorecard."""
+
 from __future__ import annotations
 
 from typing import Literal

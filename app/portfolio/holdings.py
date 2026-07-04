@@ -1,3 +1,5 @@
+"""SQLite-backed holdings table and live portfolio valuation."""
+
 from __future__ import annotations
 
 import asyncio
@@ -55,6 +57,7 @@ class PortfolioValuation(BaseModel):
 
 
 def init_holdings_db() -> None:
+    """Create the holdings table if it doesn't exist yet; idempotent."""
     with _conn() as c:
         c.execute(
             """
@@ -69,12 +72,14 @@ def init_holdings_db() -> None:
 
 
 def list_holdings() -> list[Holding]:
+    """All holdings, ordered by symbol."""
     with _conn() as c:
         rows = c.execute("SELECT symbol, shares, avg_cost FROM holdings ORDER BY symbol").fetchall()
     return [Holding(symbol=r["symbol"], shares=r["shares"], avg_cost=r["avg_cost"]) for r in rows]
 
 
 def upsert_holding(symbol: str, shares: float, avg_cost: float | None) -> None:
+    """Insert or replace a holding's shares/avg_cost — overwrites, not a lot-level add."""
     sym = symbol.upper()
     with _conn() as c:
         c.execute(
@@ -91,11 +96,14 @@ def upsert_holding(symbol: str, shares: float, avg_cost: float | None) -> None:
 
 
 def remove_holding(symbol: str) -> None:
+    """Delete a holding by symbol; a no-op if it isn't held."""
     with _conn() as c:
         c.execute("DELETE FROM holdings WHERE symbol = ?", (symbol.upper(),))
 
 
 async def value_holdings() -> PortfolioValuation:
+    """Price every holding and aggregate totals over the priced subset only;
+    unpriced symbols are listed but contribute nothing to the totals."""
     holdings = list_holdings()
     asof = datetime.now(UTC).isoformat()
 

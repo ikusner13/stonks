@@ -127,6 +127,8 @@ def _fetch_blocking(symbol: str) -> dict[str, Any]:
 
 
 async def fetch_financials(symbol: str, *, fresh: bool = False) -> SecFinancials | None:
+    """Latest SEC XBRL financials for ``symbol``, cached 24h. ``None`` if the
+    company isn't found in EDGAR or every statement fetch failed."""
     key = symbol.upper()
 
     async def produce() -> dict:
