@@ -7,6 +7,11 @@
     Describe what you're looking for. Candidates are validated against real market data —
     hallucinated tickers are dropped and numeric filters enforced in code.
   </p>
+  {% if not llm_configured %}
+  <p class="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm">
+    OPENROUTER_API_KEY is not configured — research runs will fail.
+  </p>
+  {% endif %}
 
   <form hx-post="/discover" hx-target="#results" hx-indicator="#discover-spin" class="flex gap-2">
     <input

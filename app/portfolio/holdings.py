@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Iterator
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..config import DB_PATH
 from ..data import fetch_ticker_data
+
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -48,6 +51,7 @@ class PortfolioValuation(BaseModel):
     total_unrealized_pl: float
     total_unrealized_pl_pct: float
     asof: str
+    unpriced_symbols: list[str] = Field(default_factory=list)
 
 
 def init_holdings_db() -> None:
@@ -103,6 +107,7 @@ async def value_holdings() -> PortfolioValuation:
             total_unrealized_pl=0.0,
             total_unrealized_pl_pct=0.0,
             asof=asof,
+            unpriced_symbols=[],
         )
 
     async def fetch_price(symbol: str) -> float | None:
@@ -110,6 +115,7 @@ async def value_holdings() -> PortfolioValuation:
             data = await fetch_ticker_data(symbol)
             return data.quote.price if data.quote else None
         except Exception:
+            logger.warning("price fetch failed for %s", symbol, exc_info=True)
             return None
 
     prices = await asyncio.gather(*[fetch_price(h.symbol) for h in holdings])
@@ -118,18 +124,31 @@ async def value_holdings() -> PortfolioValuation:
     valuations: list[HoldingValuation] = []
     total_value = 0.0
     total_cost = 0.0
+    total_unrealized_pl = 0.0
+    unpriced_symbols: list[str] = []
 
     for h in holdings:
         price = price_map.get(h.symbol)
         market_value = h.shares * price if price is not None else None
         cost_value = h.shares * h.avg_cost if h.avg_cost is not None else None
-        unrealized_pl = (market_value - cost_value) if (market_value is not None and cost_value is not None) else None
-        unrealized_pl_pct = (unrealized_pl / cost_value) if (unrealized_pl is not None and cost_value and cost_value != 0) else None
+        unrealized_pl = (
+            (market_value - cost_value)
+            if (market_value is not None and cost_value is not None)
+            else None
+        )
+        unrealized_pl_pct = (
+            (unrealized_pl / cost_value)
+            if (unrealized_pl is not None and cost_value and cost_value != 0)
+            else None
+        )
 
         if market_value is not None:
             total_value += market_value
-        if cost_value is not None:
+        else:
+            unpriced_symbols.append(h.symbol)
+        if unrealized_pl is not None and cost_value is not None:
             total_cost += cost_value
+            total_unrealized_pl += unrealized_pl
 
         valuations.append(HoldingValuation(
             symbol=h.symbol,
@@ -148,7 +167,6 @@ async def value_holdings() -> PortfolioValuation:
         if v.market_value is not None and total_value > 0:
             v.weight = v.market_value / total_value
 
-    total_unrealized_pl = total_value - total_cost
     total_unrealized_pl_pct = (total_unrealized_pl / total_cost) if total_cost != 0 else 0.0
 
     return PortfolioValuation(
@@ -158,4 +176,5 @@ async def value_holdings() -> PortfolioValuation:
         total_unrealized_pl=total_unrealized_pl,
         total_unrealized_pl_pct=total_unrealized_pl_pct,
         asof=asof,
+        unpriced_symbols=unpriced_symbols,
     )

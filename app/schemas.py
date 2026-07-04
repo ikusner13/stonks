@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Confidence = Literal["low", "medium", "high"]
 Severity = Literal["low", "medium", "high"]
+SourceStatus = Literal["ok", "empty", "error", "disabled"]
 
 # --- Market data ------------------------------------------------------------
 
@@ -50,6 +51,7 @@ class TickerData(BaseModel):
     news: list[NewsItem] = Field(default_factory=list)
     financials: SecFinancials | None = None
     macro: MacroContext | None = None
+    sources: dict[str, SourceStatus] = Field(default_factory=dict)
 
 
 # --- Research report --------------------------------------------------------

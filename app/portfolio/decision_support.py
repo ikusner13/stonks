@@ -13,7 +13,7 @@ import asyncio
 from datetime import UTC, datetime
 from itertools import combinations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..cache import with_cache
 from ..schemas import Confidence
@@ -202,12 +202,16 @@ class PositionSizeGuidance(BaseModel):
     low_dollars: float
     high_dollars: float
     note: str
+    current_weight: float | None = None
+    already_at_band: bool = False
 
 
 def suggest_position_size(
     portfolio_value: float,
     confidence: Confidence,
     symbol: str | None = None,
+    *,
+    current_weight: float | None = None,
 ) -> PositionSizeGuidance:
     """Suggest a starting position-size *range* for a candidate.
 
@@ -216,6 +220,9 @@ def suggest_position_size(
     percentage and an approximate dollar amount.
     """
     low_pct, high_pct = _SIZE_BANDS[confidence]
+    low_headroom = low_pct
+    high_headroom = high_pct
+    already_at_band = False
     note = (
         f"Based on '{confidence}' research confidence, a starting position of "
         f"roughly {low_pct * 100:.1f}–{high_pct * 100:.0f}% of your "
@@ -223,6 +230,23 @@ def suggest_position_size(
         f"consider. Higher-confidence research earns a slightly larger band; "
         f"size down if you're unsure. This is guidance, not advice."
     )
+    if current_weight is not None:
+        low_headroom = max(0.0, low_pct - current_weight)
+        high_headroom = max(0.0, high_pct - current_weight)
+        if current_weight >= high_pct:
+            already_at_band = True
+            note = (
+                f"The existing position is already {current_weight:.1%} of the portfolio, "
+                f"at/above the {high_pct:.0%} band for this confidence — adding would "
+                f"increase concentration rather than diversify."
+            )
+        elif current_weight > 0:
+            note = (
+                f"The existing {current_weight:.1%} position counts toward the "
+                f"{low_pct * 100:.1f}–{high_pct * 100:.0f}% band for '{confidence}' "
+                f"confidence, so the dollar range shown is remaining headroom. This is "
+                f"guidance, not advice."
+            )
     if portfolio_value <= 0:
         note = (
             "Add holdings so the app knows your portfolio size, then it can "
@@ -235,9 +259,11 @@ def suggest_position_size(
         portfolio_value=portfolio_value,
         low_pct=low_pct,
         high_pct=high_pct,
-        low_dollars=portfolio_value * low_pct,
-        high_dollars=portfolio_value * high_pct,
+        low_dollars=portfolio_value * low_headroom,
+        high_dollars=portfolio_value * high_headroom,
         note=note,
+        current_weight=current_weight,
+        already_at_band=already_at_band,
     )
 
 
@@ -262,6 +288,8 @@ class CorrelationInsight(BaseModel):
     level: str  # "low" | "moderate" | "high" hidden concentration
     note: str
     threshold: float = HIGH_CORRELATION
+    excluded_symbols: list[str] = Field(default_factory=list)
+    sample_days: int = 0
 
 
 def analyze_correlation(
@@ -332,18 +360,22 @@ def analyze_correlation(
 def _correlation_sync(symbols: list[str], lookback_days: int) -> CorrelationInsight | None:
     # Reuse the performance module's return-history fetch, then correlate.
     from .performance import _fetch_returns
+    from .history import MIN_HISTORY_ROWS
 
     uniq = list(dict.fromkeys(s.upper() for s in symbols))
     if len(uniq) < 2:
         return None
-    returns = _fetch_returns(uniq, lookback_days)
-    if returns is None or returns.shape[1] < 2:
+    returns, excluded = _fetch_returns(uniq, lookback_days)
+    if returns is None or returns.shape[0] < MIN_HISTORY_ROWS or returns.shape[1] < 2:
         return None
     corr = returns.corr()
     matrix = {
         a: {b: float(corr.loc[a, b]) for b in corr.columns} for a in corr.index
     }
-    return analyze_correlation(matrix)
+    insight = analyze_correlation(matrix)
+    if insight is None:
+        return None
+    return insight.model_copy(update={"excluded_symbols": excluded, "sample_days": returns.shape[0]})
 
 
 async def compute_correlation_insight(

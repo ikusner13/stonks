@@ -2,6 +2,11 @@
 {% block title %}{{ sym }} · Stock Research{% endblock %}
 {% block content %}
 <main class="page-wrap px-4 pb-8 pt-10">
+  {% if not llm_configured %}
+  <p class="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm">
+    OPENROUTER_API_KEY is not configured — research runs will fail.
+  </p>
+  {% endif %}
   <div
     id="report"
     hx-get="/research/{{ sym }}/report?mode={{ mode }}"

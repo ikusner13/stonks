@@ -62,6 +62,11 @@
     </div>
     {% endif %}
     <p class="mt-2 text-[var(--sea-ink-soft)]">{{ sizing.note }}</p>
+    {% if result.report.confidence != result.critique.suggested_confidence %}
+    <p class="mt-2 text-xs text-[var(--sea-ink-soft)]">
+      analyst: {{ result.report.confidence }} · critic: {{ result.critique.suggested_confidence }} → using {{ sizing.confidence }}
+    </p>
+    {% endif %}
   </div>
 </section>
 {% endif %}

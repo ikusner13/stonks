@@ -8,6 +8,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+ENV STOCKS_DB_PATH=/data/stocks.db STOCKS_CACHE_DIR=/data/.cache
+RUN mkdir -p /data
+VOLUME ["/data"]
 
 # Install deps first for layer caching.
 COPY pyproject.toml uv.lock ./

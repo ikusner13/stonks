@@ -79,3 +79,29 @@ def test_grounds_spelled_out_magnitude_within_tolerance():
 def test_treats_news_headline_numbers_as_allowed():
     r = report(key_metrics=[KeyMetric(label="Units", value="19.83 billion", interpretation="")])
     assert check_fabrication(r, DATA).passed
+
+
+def test_flags_fabricated_dollar_figure_in_prose():
+    r = report(
+        thesis=Thesis(
+            bull=["Management says margins can support $9.9B in cash flow."],
+            bear=[],
+        )
+    )
+    res = check_fabrication(r, DATA)
+    assert not res.passed
+    assert "thesis.bull[0]" in res.details
+    assert "9900000000" in res.details
+
+
+def test_prose_filters_common_non_financial_numbers():
+    r = report(
+        summary="The 2025 outlook references the latest 10-K.",
+        thesis=Thesis(bull=["This remains a top 3 brand."], bear=[]),
+    )
+    assert check_fabrication(r, DATA).passed
+
+
+def test_grounded_number_in_summary_passes():
+    r = report(summary="Revenue is $390B and profit margin is 25%.")
+    assert check_fabrication(r, DATA).passed

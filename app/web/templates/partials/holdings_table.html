@@ -4,6 +4,11 @@
   {% if not valuation.holdings %}
   <p class="py-4 text-sm text-[var(--sea-ink-soft)]">No holdings yet. Add a position below.</p>
   {% else %}
+  {% if valuation.unpriced_symbols %}
+  <p class="mb-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm">
+    Prices unavailable for {{ valuation.unpriced_symbols | join(", ") }} — these positions are excluded from the totals below.
+  </p>
+  {% endif %}
   <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead>

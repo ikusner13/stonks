@@ -1,7 +1,4 @@
-"""Macroeconomic context via FRED (fredapi).
-
-Gracefully returns None when FRED_API_KEY is absent or any fetch fails.
-"""
+"""Macroeconomic context via FRED (fredapi)."""
 
 from __future__ import annotations
 
@@ -76,10 +73,7 @@ async def fetch_macro(*, fresh: bool = False) -> MacroContext | None:
         return None
 
     async def produce() -> dict:
-        try:
-            return await asyncio.to_thread(_fetch_fred_sync, api_key)
-        except Exception:
-            return {}
+        return await asyncio.to_thread(_fetch_fred_sync, api_key)
 
     value, _ = await with_cache("macro", "latest", _MACRO_TTL_MS, produce, fresh=fresh)
     if not value:

@@ -60,3 +60,17 @@ def test_isolates_entries_by_key():
     assert read_cache(NS, "a") == 1
     assert read_cache(NS, "b") == 2
     assert read_cache(NS, "absent") is None
+
+
+async def test_none_result_is_not_cached():
+    calls = 0
+
+    async def produce():
+        nonlocal calls
+        calls += 1
+        return None
+
+    assert await with_cache(NS, "none", 60_000, produce) == (None, False)
+    assert read_cache(NS, "none") is None
+    assert await with_cache(NS, "none", 60_000, produce) == (None, False)
+    assert calls == 2

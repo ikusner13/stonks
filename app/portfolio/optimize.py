@@ -7,16 +7,19 @@ return / volatility / Sharpe computed consistently with numpy.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Literal
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 from pydantic import BaseModel, Field, field_validator
 from skfolio import RiskMeasure
 from skfolio.optimization import MeanRisk, ObjectiveFunction
 from skfolio.preprocessing import prices_to_returns
+
+from .history import NoDataError, fetch_price_history
+
+__all__ = ["Holding", "NoDataError", "OptimizeRequest", "OptimizeResult", "optimize"]
 
 TRADING_DAYS = 252
 
@@ -26,10 +29,6 @@ DISCLAIMER = (
     "Research context only, not investment advice. Mean-variance weights are "
     "derived from historical returns and assume the past is representative."
 )
-
-
-class NoDataError(ValueError):
-    """Raised when no requested symbol returns usable price history."""
 
 
 class Holding(BaseModel):
@@ -52,6 +51,7 @@ class OptimizeRequest(BaseModel):
     lookback_days: int = Field(default=730, ge=60, le=3650)
     risk_free_rate: float = Field(default=0.0, ge=0, le=0.2)
     frontier_points: int = Field(default=20, ge=0, le=100)
+    max_weight: float = Field(default=0.35, gt=0, le=1.0)
 
 
 class PortfolioMetrics(BaseModel):
@@ -79,23 +79,8 @@ class OptimizeResult(BaseModel):
     disclaimer: str = DISCLAIMER
 
 
-def _fetch_prices(symbols: list[str], lookback_days: int) -> pd.DataFrame:
-    start = (date.today() - timedelta(days=lookback_days)).isoformat()
-    raw = yf.download(
-        symbols, start=start, auto_adjust=True, progress=False, group_by="column"
-    )
-    if raw is None or raw.empty:
-        raise NoDataError("yfinance returned no data")
-
-    # Multi-ticker -> MultiIndex (PriceType, Ticker); single ticker -> flat cols.
-    close = raw["Close"]
-    if isinstance(close, pd.Series):
-        close = close.to_frame(symbols[0])
-
-    close = close.dropna(axis=1, how="all").dropna(axis=0, how="any")
-    if close.shape[0] < 2 or close.shape[1] == 0:
-        raise NoDataError("insufficient overlapping price history")
-    return close
+def _fetch_prices(symbols: list[str], lookback_days: int) -> tuple[pd.DataFrame, list[str]]:
+    return fetch_price_history(symbols, lookback_days)
 
 
 def _metrics(weights: np.ndarray, returns: pd.DataFrame, rf: float) -> dict:
@@ -113,9 +98,8 @@ def _current_weights(holdings: list[Holding], available: list[str]) -> dict[str,
     for h in holdings:
         if h.symbol not in available:
             continue
-        size = h.value if h.value is not None else h.shares
-        if size:
-            sizes[h.symbol] = sizes.get(h.symbol, 0.0) + float(size)
+        if h.value:
+            sizes[h.symbol] = sizes.get(h.symbol, 0.0) + float(h.value)
     total = sum(sizes.values())
     if total <= 0:
         return None
@@ -124,9 +108,14 @@ def _current_weights(holdings: list[Holding], available: list[str]) -> dict[str,
 
 def optimize(req: OptimizeRequest) -> OptimizeResult:
     requested = list(dict.fromkeys(h.symbol for h in req.holdings))  # dedupe, keep order
-    prices = _fetch_prices(requested, req.lookback_days)
+    prices, excluded = _fetch_prices(requested, req.lookback_days)
     available = list(prices.columns)
-    warnings = [f"{s}: no price data, dropped" for s in requested if s not in available]
+    warnings = [
+        f"{s}: no price data, dropped"
+        for s in requested
+        if s not in available and s not in excluded
+    ]
+    warnings.extend(f"{s}: insufficient price history, excluded" for s in excluded)
 
     returns = prices_to_returns(prices)
     n = len(available)
@@ -139,7 +128,16 @@ def optimize(req: OptimizeRequest) -> OptimizeResult:
             if req.objective == "max_sharpe"
             else ObjectiveFunction.MINIMIZE_RISK
         )
-        model = MeanRisk(risk_measure=RiskMeasure.VARIANCE, objective_function=obj)
+        cap = max(req.max_weight, 1.0 / n)
+        if cap != req.max_weight:
+            warnings.append(f"per-asset cap relaxed to {cap:.0%} for {n} assets")
+        model = MeanRisk(
+            risk_measure=RiskMeasure.VARIANCE,
+            objective_function=obj,
+            max_weights=cap,
+            min_weights=0.0,
+            risk_free_rate=req.risk_free_rate,
+        )
         model.fit(returns)
         opt_vec = np.asarray(model.weights_, dtype=float).ravel()
 
@@ -163,6 +161,9 @@ def optimize(req: OptimizeRequest) -> OptimizeResult:
             risk_measure=RiskMeasure.VARIANCE,
             objective_function=ObjectiveFunction.MINIMIZE_RISK,
             efficient_frontier_size=req.frontier_points,
+            max_weights=cap,
+            min_weights=0.0,
+            risk_free_rate=req.risk_free_rate,
         )
         ef.fit(returns)
         for row in np.atleast_2d(np.asarray(ef.weights_, dtype=float)):

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 
 import pandas as pd
 import quantstats_lumi as qs
-import yfinance as yf
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from .history import NoDataError, fetch_price_history
 
 
 class PerformanceMetrics(BaseModel):
@@ -21,45 +22,50 @@ class PerformanceMetrics(BaseModel):
     benchmark_cagr: float | None
     lookback_days: int
     asof: str
+    excluded_symbols: list[str] = Field(default_factory=list)
+    window_start: str | None = None
+    window_end: str | None = None
+    sample_days: int = 0
 
 
-def _fetch_returns(symbols: list[str], lookback_days: int) -> pd.DataFrame | None:
-    start = (date.today() - timedelta(days=lookback_days)).isoformat()
-    raw = yf.download(symbols, start=start, auto_adjust=True, progress=False, group_by="column")
-    if raw is None or raw.empty:
-        return None
-    close = raw["Close"]
-    if isinstance(close, pd.Series):
-        close = close.to_frame(symbols[0])
-    close = close.dropna(axis=1, how="all").dropna(axis=0, how="any")
-    if close.shape[0] < 30:
-        return None
-    return close.pct_change().dropna()
+def _fetch_returns(
+    symbols: list[str], lookback_days: int
+) -> tuple[pd.DataFrame | None, list[str]]:
+    try:
+        close, excluded = fetch_price_history(symbols, lookback_days)
+    except NoDataError:
+        return None, []
+    returns = close.pct_change().dropna()
+    if returns.shape[0] < 30:
+        return None, excluded
+    return returns, excluded
 
 
-def _build_portfolio_returns(weights: dict[str, float], lookback_days: int) -> pd.Series | None:
+def _build_portfolio_returns(
+    weights: dict[str, float], lookback_days: int
+) -> tuple[pd.Series | None, list[str]]:
     symbols = list(weights.keys())
-    returns = _fetch_returns(symbols, lookback_days)
+    returns, excluded = _fetch_returns(symbols, lookback_days)
     if returns is None or returns.empty:
-        return None
+        return None, excluded
 
     available = [s for s in symbols if s in returns.columns]
     if not available:
-        return None
+        return None, excluded
 
     total_w = sum(weights[s] for s in available)
     if total_w <= 0:
-        return None
+        return None, excluded
     normalized = {s: weights[s] / total_w for s in available}
 
     portfolio = sum(returns[s] * normalized[s] for s in available)
-    return portfolio
+    return portfolio, excluded
 
 
 def _compute_sync(
     weights: dict[str, float], lookback_days: int, benchmark: str
 ) -> PerformanceMetrics | None:
-    portfolio = _build_portfolio_returns(weights, lookback_days)
+    portfolio, excluded = _build_portfolio_returns(weights, lookback_days)
     if portfolio is None or len(portfolio) < 30:
         return None
 
@@ -75,12 +81,17 @@ def _compute_sync(
 
     benchmark_cagr: float | None = None
     try:
-        bench_returns = _fetch_returns([benchmark], lookback_days)
+        bench_returns, _ = _fetch_returns([benchmark], lookback_days)
         if bench_returns is not None and benchmark in bench_returns.columns:
             bench_series = bench_returns[benchmark]
-            benchmark_cagr = float(qs.stats.cagr(bench_series))
+            common = portfolio.index.intersection(bench_series.index)
+            if len(common) >= 30:
+                benchmark_cagr = float(qs.stats.cagr(bench_series.loc[common]))
     except Exception:
         pass
+
+    window_start = str(portfolio.index[0].date()) if len(portfolio.index) else None
+    window_end = str(portfolio.index[-1].date()) if len(portfolio.index) else None
 
     return PerformanceMetrics(
         cagr=cagr_val,
@@ -93,6 +104,10 @@ def _compute_sync(
         benchmark_cagr=benchmark_cagr,
         lookback_days=lookback_days,
         asof=datetime.now(UTC).isoformat(),
+        excluded_symbols=excluded,
+        window_start=window_start,
+        window_end=window_end,
+        sample_days=len(portfolio),
     )
 
 
@@ -105,13 +120,13 @@ async def compute_performance(
 
 
 def _tearsheet_sync(weights: dict[str, float], lookback_days: int, benchmark: str) -> str | None:
-    portfolio = _build_portfolio_returns(weights, lookback_days)
+    portfolio, _ = _build_portfolio_returns(weights, lookback_days)
     if portfolio is None or len(portfolio) < 30:
         return None
 
     bench_returns: pd.Series | None = None
     try:
-        bench_df = _fetch_returns([benchmark], lookback_days)
+        bench_df, _ = _fetch_returns([benchmark], lookback_days)
         if bench_df is not None and benchmark in bench_df.columns:
             bench_returns = bench_df[benchmark]
     except Exception:

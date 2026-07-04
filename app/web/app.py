@@ -3,6 +3,8 @@ optimizer (formerly an HTTP sidecar) as a direct in-process call."""
 
 from __future__ import annotations
 
+import logging
+import os
 import sys
 from pathlib import Path
 
@@ -12,9 +14,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db
+from ..config import OPENROUTER_API_KEY
 from ..llm.discovery import discover_ideas
-from ..llm.pipeline import research_ticker_cached
+from ..llm.pipeline import InsufficientDataError, research_ticker_cached
 from ..llm.usage import format_event, with_run
+from ..schemas import Confidence
 from ..portfolio.decision_support import (
     DISCLAIMER as DS_DISCLAIMER,
 )
@@ -34,6 +38,9 @@ from ..portfolio.holdings import (
 from ..portfolio.optimize import Holding, NoDataError, OptimizeRequest, optimize
 from ..portfolio.performance import compute_performance, tearsheet_html
 
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger(__name__)
+
 HERE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=HERE / "templates")
 
@@ -43,6 +50,11 @@ EXAMPLES = [
     "Growth technology stocks",
     "Most active stocks today",
 ]
+
+_CONF_ORDER = {"low": 0, "medium": 1, "high": 2}
+LLM_CONFIGURED = bool(OPENROUTER_API_KEY)
+if not LLM_CONFIGURED:
+    logger.warning("OPENROUTER_API_KEY not set — research and discovery will fail")
 
 
 # --- Jinja filters ----------------------------------------------------------
@@ -70,6 +82,22 @@ def _pct(n: float) -> str:
     return f"{n * 100:.1f}%"
 
 
+def _effective_confidence(report: Confidence, critic: Confidence) -> Confidence:
+    return min(report, critic, key=_CONF_ORDER.__getitem__)
+
+
+def _error_partial(
+    request: Request,
+    message: str,
+    retry_url: str | None = None,
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "partials/error.html",
+        {"message": message, "retry_url": retry_url},
+    )
+
+
 templates.env.filters["fmt_num"] = _fmt_num
 templates.env.filters["fmt_cap"] = _fmt_cap
 templates.env.filters["pct"] = _pct
@@ -92,7 +120,9 @@ def favicon():
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse(
-        request, "index.html", {"active": "discover", "examples": EXAMPLES}
+        request,
+        "index.html",
+        {"active": "discover", "examples": EXAMPLES, "llm_configured": LLM_CONFIGURED},
     )
 
 
@@ -101,13 +131,17 @@ async def discover(request: Request, goal: str = Form("")):
     goal = goal.strip()
     if not goal:
         return HTMLResponse("")
-    async with with_run("discover", goal) as ctx:
-        result = await discover_ideas(goal)
-    print("\n" + format_event(ctx.extra["_event"]), file=sys.stderr)
-    watched = {i.symbol for i in db.list_items()}
-    return templates.TemplateResponse(
-        request, "partials/candidates.html", {"result": result, "watched_symbols": watched}
-    )
+    try:
+        async with with_run("discover", goal) as ctx:
+            result = await discover_ideas(goal)
+        print("\n" + format_event(ctx.extra["_event"]), file=sys.stderr)
+        watched = {i.symbol for i in db.list_items()}
+        return templates.TemplateResponse(
+            request, "partials/candidates.html", {"result": result, "watched_symbols": watched}
+        )
+    except Exception:
+        logger.exception("discover failed")
+        return _error_partial(request, "Discovery failed — see server logs.")
 
 
 # --- Research ---------------------------------------------------------------
@@ -118,7 +152,12 @@ def research_page(request: Request, symbol: str, mode: str = "thorough"):
     return templates.TemplateResponse(
         request,
         "research.html",
-        {"active": "", "sym": symbol.upper(), "mode": mode},
+        {
+            "active": "",
+            "sym": symbol.upper(),
+            "mode": mode,
+            "llm_configured": LLM_CONFIGURED,
+        },
     )
 
 
@@ -126,20 +165,30 @@ def research_page(request: Request, symbol: str, mode: str = "thorough"):
 async def research_report(request: Request, symbol: str, mode: str = "thorough", fresh: int = 0):
     sym = symbol.upper()
     mode = "cheap" if mode == "cheap" else "thorough"
-    async with with_run("research", sym, mode) as ctx:
-        result = await research_ticker_cached(sym, mode, fresh=bool(fresh))
-    print("\n" + format_event(ctx.extra["_event"]), file=sys.stderr)
-    # Tie a conservative position-size range to this report's confidence and
-    # the current portfolio size — research-grounded decision support.
-    valuation = await value_holdings()
-    sizing = suggest_position_size(
-        valuation.total_value, result.report.confidence, symbol=sym
-    )
-    return templates.TemplateResponse(
-        request,
-        "partials/research_report.html",
-        {"result": result, "mode": mode, "watched": db.has(sym), "sizing": sizing},
-    )
+    try:
+        async with with_run("research", sym, mode) as ctx:
+            result = await research_ticker_cached(sym, mode, fresh=bool(fresh))
+        print("\n" + format_event(ctx.extra["_event"]), file=sys.stderr)
+        valuation = await value_holdings()
+        effective = _effective_confidence(
+            result.report.confidence, result.critique.suggested_confidence
+        )
+        current_weight = next((h.weight for h in valuation.holdings if h.symbol == sym), None)
+        sizing = suggest_position_size(
+            valuation.total_value, effective, symbol=sym, current_weight=current_weight
+        )
+        return templates.TemplateResponse(
+            request,
+            "partials/research_report.html",
+            {"result": result, "mode": mode, "watched": db.has(sym), "sizing": sizing},
+        )
+    except InsufficientDataError:
+        logger.exception("research failed: insufficient data for %s", sym)
+        return _error_partial(request, f"No market data found for {sym} — check the ticker symbol.")
+    except Exception:
+        logger.exception("research failed for %s", sym)
+        retry_url = f"/research/{sym}/report?mode={mode}&fresh={fresh}"
+        return _error_partial(request, "Research failed — see server logs.", retry_url)
 
 
 # --- Watchlist --------------------------------------------------------------
@@ -177,8 +226,10 @@ def watchlist_remove(symbol: str):
 @app.get("/portfolio", response_class=HTMLResponse)
 async def portfolio_page(request: Request):
     valuation = await value_holdings()
-    holdings = list_holdings()
-    optimizer_rows = [{"symbol": h.symbol, "value": None} for h in holdings]
+    optimizer_rows = [
+        {"symbol": v.symbol, "value": round(v.market_value, 2) if v.market_value is not None else None}
+        for v in valuation.holdings
+    ]
     health = assess_portfolio_health(valuation)
     return templates.TemplateResponse(
         request,
@@ -242,50 +293,68 @@ async def portfolio_holdings_remove(request: Request, symbol: str):
 
 @app.get("/portfolio/correlation", response_class=HTMLResponse)
 async def portfolio_correlation(request: Request):
-    symbols = [h.symbol for h in list_holdings()]
-    insight = await compute_correlation_insight(symbols) if len(symbols) >= 2 else None
-    return templates.TemplateResponse(
-        request,
-        "partials/portfolio_correlation.html",
-        {"insight": insight, "too_few": len(symbols) < 2},
-    )
+    try:
+        symbols = [h.symbol for h in list_holdings()]
+        insight = await compute_correlation_insight(symbols) if len(symbols) >= 2 else None
+        return templates.TemplateResponse(
+            request,
+            "partials/portfolio_correlation.html",
+            {"insight": insight, "too_few": len(symbols) < 2},
+        )
+    except Exception:
+        logger.exception("portfolio correlation failed")
+        return _error_partial(
+            request, "Portfolio correlation failed — see server logs.", "/portfolio/correlation"
+        )
 
 
 @app.get("/portfolio/performance", response_class=HTMLResponse)
 async def portfolio_performance(request: Request):
-    valuation = await value_holdings()
-    has_holdings = bool(valuation.holdings)
-    if not has_holdings:
+    try:
+        valuation = await value_holdings()
+        has_holdings = bool(valuation.holdings)
+        if not has_holdings:
+            return templates.TemplateResponse(
+                request,
+                "partials/performance.html",
+                {"has_holdings": False, "metrics": None},
+            )
+        weights = {h.symbol: h.weight for h in valuation.holdings if h.weight is not None}
+        metrics = await compute_performance(weights) if weights else None
         return templates.TemplateResponse(
             request,
             "partials/performance.html",
-            {"has_holdings": False, "metrics": None},
+            {"has_holdings": True, "metrics": metrics},
         )
-    weights = {h.symbol: h.weight for h in valuation.holdings if h.weight is not None}
-    metrics = await compute_performance(weights) if weights else None
-    return templates.TemplateResponse(
-        request,
-        "partials/performance.html",
-        {"has_holdings": True, "metrics": metrics},
-    )
+    except Exception:
+        logger.exception("portfolio performance failed")
+        return _error_partial(
+            request, "Portfolio performance failed — see server logs.", "/portfolio/performance"
+        )
 
 
 @app.get("/portfolio/tearsheet", response_class=HTMLResponse)
 async def portfolio_tearsheet(request: Request):
     import anyio
 
-    valuation = await value_holdings()
-    if not valuation.holdings:
-        return HTMLResponse("<p>No holdings — add positions first.</p>")
-    weights = {h.symbol: h.weight for h in valuation.holdings if h.weight is not None}
-    if not weights:
-        return HTMLResponse("<p>Unable to compute weights — prices may be unavailable.</p>")
-    html = await anyio.to_thread.run_sync(
-        lambda: tearsheet_html(weights)
-    )
-    if not html:
-        return HTMLResponse("<p>Could not generate tearsheet — insufficient price history.</p>")
-    return HTMLResponse(content=html)
+    try:
+        valuation = await value_holdings()
+        if not valuation.holdings:
+            return HTMLResponse("<p>No holdings — add positions first.</p>")
+        weights = {h.symbol: h.weight for h in valuation.holdings if h.weight is not None}
+        if not weights:
+            return HTMLResponse("<p>Unable to compute weights — prices may be unavailable.</p>")
+        html = await anyio.to_thread.run_sync(
+            lambda: tearsheet_html(weights)
+        )
+        if not html:
+            return HTMLResponse("<p>Could not generate tearsheet — insufficient price history.</p>")
+        return HTMLResponse(content=html)
+    except Exception:
+        logger.exception("portfolio tearsheet failed")
+        return _error_partial(
+            request, "Portfolio tearsheet failed — see server logs.", "/portfolio/tearsheet"
+        )
 
 
 @app.post("/portfolio/optimize", response_class=HTMLResponse)
@@ -299,8 +368,12 @@ async def portfolio_optimize(request: Request):
 
     # If no symbols passed via form, seed from holdings
     if not any((s or "").strip() for s in symbols):
-        current_holdings = list_holdings()
-        holdings = [Holding(symbol=h.symbol, value=None) for h in current_holdings]
+        valuation = await value_holdings()
+        holdings = [
+            Holding(symbol=v.symbol, value=v.market_value)
+            for v in valuation.holdings
+            if v.market_value
+        ]
     else:
         holdings: list[Holding] = []
         for sym, val in zip(symbols, values):

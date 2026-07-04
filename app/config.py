@@ -14,7 +14,7 @@ except ImportError:  # python-dotenv ships with fastapi[standard]; fall back gra
     pass
 
 ROOT = Path(__file__).resolve().parent.parent
-CACHE_DIR = ROOT / ".cache"
+CACHE_DIR = Path(os.getenv("STOCKS_CACHE_DIR", ROOT / ".cache"))
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")

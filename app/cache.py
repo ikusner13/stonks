@@ -60,5 +60,6 @@ async def with_cache(
         if cached is not None:
             return cached, True
     value = await produce()
-    write_cache(namespace, key, value, ttl_ms)
+    if value is not None:
+        write_cache(namespace, key, value, ttl_ms)
     return value, False

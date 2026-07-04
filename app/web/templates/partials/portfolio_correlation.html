@@ -43,4 +43,9 @@
     than adding another name that moves with the pack.
   </p>
 </details>
+{% if insight.excluded_symbols %}
+<p class="mt-3 text-xs text-[var(--sea-ink-soft)]">
+  Excluded from correlation due to insufficient price history: {{ insight.excluded_symbols | join(", ") }}.
+</p>
+{% endif %}
 {% endif %}

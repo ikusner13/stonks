@@ -4,6 +4,15 @@
 {% elif metrics is none %}
 <p class="text-sm text-[var(--sea-ink-soft)]">Insufficient price history to compute performance. Need at least 30 trading days.</p>
 {% else %}
+<h3 class="mb-1 text-sm font-semibold">Allocation backtest</h3>
+<p class="mb-4 text-xs text-[var(--sea-ink-soft)]">
+  How today's weights would have performed if held constant over the last {{ metrics.sample_days }} trading days ({{ metrics.window_start }} → {{ metrics.window_end }}). This is not your account's realized return.
+</p>
+{% if metrics.excluded_symbols %}
+<p class="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm">
+  Excluded from this backtest due to insufficient price history: {{ metrics.excluded_symbols | join(", ") }}.
+</p>
+{% endif %}
 <dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
   <div>
     <dt class="text-xs text-[var(--sea-ink-soft)]">CAGR</dt>
@@ -36,7 +45,7 @@
   </div>
   {% endif %}
 </dl>
-<p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ metrics.lookback_days }}-day lookback vs {{ metrics.benchmark }} · as of {{ metrics.asof[:10] }}</p>
+<p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ metrics.lookback_days }}-day requested lookback vs {{ metrics.benchmark }} · as of {{ metrics.asof[:10] }}</p>
 <div class="mt-4">
   <a href="/portfolio/tearsheet" target="_blank"
     class="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-1.5 text-xs font-semibold no-underline hover:opacity-80">

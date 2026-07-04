@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 from typing import Any
@@ -11,6 +12,8 @@ import pandas as pd
 from pydantic import BaseModel
 
 from ..cache import with_cache
+
+logger = logging.getLogger(__name__)
 
 _IDENTITY_SET = False
 _SEC_TTL_MS = 24 * 60 * 60 * 1000  # 24 h
@@ -63,23 +66,17 @@ def _get_concept(df: pd.DataFrame, concept: str) -> float | None:
     return None if pd.isna(v) else float(v)
 
 
-def _fetch_blocking(symbol: str) -> dict[str, Any] | None:
+def _fetch_blocking(symbol: str) -> dict[str, Any]:
     _ensure_identity()
     import edgar
 
-    try:
-        company = edgar.Company(symbol)
-        if company.not_found:
-            return None
-    except Exception:
-        return None
+    company = edgar.Company(symbol)
+    if company.not_found:
+        return {}
 
-    try:
-        fin = company.get_financials()
-        if fin is None:
-            return None
-    except Exception:
-        return None
+    fin = company.get_financials()
+    if fin is None:
+        return {}
 
     result: dict[str, Any] = {}
 
@@ -90,7 +87,7 @@ def _fetch_blocking(symbol: str) -> dict[str, Any] | None:
         result["operating_income"] = _get_concept(df_inc, "OperatingIncomeLoss")
         result["net_income"] = _get_concept(df_inc, "NetIncome")
     except Exception:
-        pass
+        logger.warning("SEC income statement fetch failed for %s", symbol, exc_info=True)
 
     try:
         df_bs = fin.balance_sheet().to_dataframe()
@@ -104,7 +101,7 @@ def _fetch_blocking(symbol: str) -> dict[str, Any] | None:
         if ltd is not None or std is not None:
             result["total_debt"] = (ltd or 0.0) + (std or 0.0)
     except Exception:
-        pass
+        logger.warning("SEC balance sheet fetch failed for %s", symbol, exc_info=True)
 
     try:
         df_cf = fin.cashflow_statement().to_dataframe()
@@ -115,7 +112,7 @@ def _fetch_blocking(symbol: str) -> dict[str, Any] | None:
             # capex is stored as negative in XBRL; FCF = OCF - |capex|
             result["free_cash_flow"] = ocf - abs(capex)
     except Exception:
-        pass
+        logger.warning("SEC cashflow statement fetch failed for %s", symbol, exc_info=True)
 
     try:
         ei = fin.xb.entity_info
@@ -124,7 +121,7 @@ def _fetch_blocking(symbol: str) -> dict[str, Any] | None:
         end_date = ei.get("document_period_end_date")
         result["filed"] = str(end_date) if end_date else None
     except Exception:
-        pass
+        logger.warning("SEC entity info fetch failed for %s", symbol, exc_info=True)
 
     return result
 
@@ -133,10 +130,7 @@ async def fetch_financials(symbol: str, *, fresh: bool = False) -> SecFinancials
     key = symbol.upper()
 
     async def produce() -> dict:
-        data = await asyncio.to_thread(_fetch_blocking, key)
-        if data is None:
-            return {}
-        return data
+        return await asyncio.to_thread(_fetch_blocking, key)
 
     value, _ = await with_cache("sec", key, _SEC_TTL_MS, produce, fresh=fresh)
 

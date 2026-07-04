@@ -18,6 +18,13 @@ from .usage import annotate_run
 REPORT_TTL_MS = 24 * 60 * 60_000
 
 
+class InsufficientDataError(RuntimeError):
+    def __init__(self, symbol: str, sources: dict[str, str]):
+        self.symbol = symbol
+        self.sources = sources
+        super().__init__(f"no usable market data for {symbol}")
+
+
 def _trading_day() -> str:
     return datetime.now(UTC).date().isoformat()  # UTC date; fine for a personal tool
 
@@ -30,6 +37,8 @@ async def research_ticker_cached(
 
     async def produce() -> dict:
         ticker = await fetch_ticker_data(sym, fresh=fresh)
+        if ticker.quote is None and ticker.fundamentals.market_cap is None:
+            raise InsufficientDataError(sym, ticker.sources)
         report, critique, revised = await research_ticker_reviewed(sym, ticker, mode)
         return ResearchResult(
             ticker=ticker, report=report, critique=critique, revised=revised

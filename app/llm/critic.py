@@ -28,20 +28,50 @@ _NUM_RE = re.compile(
 )
 
 
+def _number_values(match: re.Match[str]) -> list[float] | None:
+    try:
+        n = float(match.group(1).replace(",", ""))
+    except ValueError:
+        return None
+    unit = (match.group(2) or "").lower()
+    if unit and unit != "%" and unit in _MAGNITUDE:
+        n *= _MAGNITUDE[unit]
+    return [n, n / 100] if unit == "%" else [n]
+
+
 def parse_numbers(text: str) -> list[list[float]]:
     """Candidate interpretations per numeric token. Handles $, commas, decimals,
     a % sign, an adjacent magnitude letter (B/M), and a spelled-out magnitude word.
     A "25%" token yields both 25 and 0.25 since ratios may be stored as fractions."""
     out: list[list[float]] = []
     for m in _NUM_RE.finditer(text):
-        try:
-            n = float(m.group(1).replace(",", ""))
-        except ValueError:
-            continue
+        values = _number_values(m)
+        if values is not None:
+            out.append(values)
+    return out
+
+
+def _prose_numbers(text: str) -> list[list[float]]:
+    out: list[list[float]] = []
+    for m in _NUM_RE.finditer(text):
+        token = m.group(1).replace(",", "")
         unit = (m.group(2) or "").lower()
-        if unit and unit != "%" and unit in _MAGNITUDE:
-            n *= _MAGNITUDE[unit]
-        out.append([n, n / 100] if unit == "%" else [n])
+        raw = m.group(0)
+        has_unit = "$" in raw or unit in {"%", *list(_MAGNITUDE)}
+        is_bare_integer = "." not in token and not has_unit
+
+        if text[m.end():m.end() + 2].lower() in {"-k", "-q"}:
+            continue
+        if is_bare_integer:
+            n = int(token)
+            if 0 <= n <= 10:
+                continue
+            if 1900 <= n <= 2100:
+                continue
+
+        values = _number_values(m)
+        if values is not None:
+            out.append(values)
     return out
 
 
@@ -85,8 +115,24 @@ def check_fabrication(report: TickerReport, data: TickerData) -> FabricationChec
     for i, m in enumerate(report.key_metrics):
         for values in parse_numbers(m.value):
             candidates.append((f"key_metrics[{i}] ({m.label})", values))
+        for values in _prose_numbers(m.interpretation):
+            candidates.append((f"key_metrics[{i}].interpretation", values))
     for values in parse_numbers(report.valuation_context):
         candidates.append(("valuation_context", values))
+    for values in _prose_numbers(report.summary):
+        candidates.append(("summary", values))
+    for i, text in enumerate(report.thesis.bull):
+        for values in _prose_numbers(text):
+            candidates.append((f"thesis.bull[{i}]", values))
+    for i, text in enumerate(report.thesis.bear):
+        for values in _prose_numbers(text):
+            candidates.append((f"thesis.bear[{i}]", values))
+    for i, text in enumerate(report.risks):
+        for values in _prose_numbers(text):
+            candidates.append((f"risks[{i}]", values))
+    for i, text in enumerate(report.things_to_investigate):
+        for values in _prose_numbers(text):
+            candidates.append((f"things_to_investigate[{i}]", values))
 
     unmatched = [
         (src, values)
