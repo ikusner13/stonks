@@ -1,0 +1,31 @@
+# Production deployment: app + Cloudflare Tunnel sidecar.
+# No ports are published on the host — cloudflared dials OUT to Cloudflare, so
+# the VPS needs zero open inbound ports (SSH aside). Auth is enforced by
+# Cloudflare Access in front of the tunnel; the app itself has none.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    volumes:
+      - stocks-data:/data
+    restart: unless-stopped
+    healthcheck:
+      # python instead of curl: the slim base image has no curl/wget.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      - app
+
+volumes:
+  stocks-data:

@@ -19,7 +19,9 @@ contract, confidence scoring, portfolio math — see
 **[docs/methodology.md](docs/methodology.md)**. For how it's built — module
 map, request traces, caching, concurrency — see
 **[docs/architecture.md](docs/architecture.md)**. For running it, env vars,
-and troubleshooting, see **[docs/operations.md](docs/operations.md)**.
+and troubleshooting, see **[docs/operations.md](docs/operations.md)**. For
+production hosting (Hetzner + Cloudflare Tunnel/Access), see
+**[docs/deployment.md](docs/deployment.md)**.
 
 ## Quickstart
 
