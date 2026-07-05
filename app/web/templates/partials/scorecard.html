@@ -45,12 +45,8 @@
           <td class="tabular-nums">
             {% if i.value is none %}
               <span class="text-[var(--sea-ink-soft)]">—</span>
-            {% elif i.unit == "pct" %}
-              {{ i.value | pct }}
-            {% elif i.unit == "ratio" %}
-              {{ '%.2f' | format(i.value) }}
             {% else %}
-              {{ i.value | int }}
+              {{ i.value | indicator_value(i.unit) }}
             {% endif %}
           </td>
           <td><span class="sig-badge sig-{{ i.signal }}">{{ i.signal }}</span></td>

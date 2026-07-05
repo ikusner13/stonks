@@ -49,42 +49,163 @@ in this codebase, and they behave differently:
   when that TTL expires or the caller passes `fresh=True`.
 
 This status surfaces directly in the UI as chips (ok/empty/error/disabled) next
-to each source, and feeds the confidence caps described in §4.
+to each source, and feeds the confidence caps described in §5.
 
 ## 2. Indicator engine
 
-`app/indicators/engine.py::compute_indicators` computes 12 indicators from
-price history (`yfinance`, 420 calendar days back) and the fetched
-`TickerData`. Every value is deterministic — the LLM never computes or alters
-one, only reads and narrates it. An indicator whose inputs are insufficient
-gets `signal: "unavailable"` and a `value: null` rather than a guess.
+`app/indicators/engine.py::compute_indicators` computes the active profile's
+ordered indicator list from price history (`yfinance`, 420 calendar days back)
+and the fetched `TickerData`. Large-cap research computes 12 indicators; penny
+research computes 15. Every value is deterministic — the LLM never computes or
+alters one, only reads and narrates it. An indicator whose inputs are
+insufficient gets `signal: "unavailable"` and a `value: null` rather than a
+guess.
 
-| Key | Formula (as coded) | Min data | Bullish | Bearish | Evidence rationale |
-| --- | --- | --- | --- | --- | --- |
-| `momentum_12_1` | `close[-21] / close[-252] - 1` | 252 closes | `> +10%` | `< -10%` | 12-month-minus-1-month momentum; the 1-month gap is the standard exclusion for short-term reversal. |
-| `momentum_6m` | `close[-1] / close[-126] - 1` | 126 closes | `> +8%` | `< -8%` | Shorter-horizon momentum effect. |
-| `pct_from_52w_high` | `close[-1] / max(close[-252:]) - 1` | 60 closes | `> -5%` | `< -20%` | Proximity to a 52-week high (relative-strength effect); a deep discount from the high is a risk flag. |
-| `trend_200d` | `close[-1] / mean(close[-200:]) - 1` | 200 closes | `> 0%` | `< -2%` | Price above/below its long moving average — classic trend-following signal. |
-| `realized_vol_90d` | `std(daily returns, last 90) * sqrt(252)` | 90 closes | — (never bullish) | `> 60%` annualized | Realized volatility as a risk flag, not an opportunity signal. |
-| `beta_1y` | `cov(symbol returns, SPY returns) / var(SPY returns)`, aligned daily returns, last 252 rows | 200 aligned return rows, nonzero SPY variance | — | — | Always `neutral`; informational market-risk context only, no bullish/bearish read. |
-| `max_drawdown_1y` | `min(window / cummax(window) - 1)` over last 252 (or fewer) closes | 60 closes | — (never bullish) | `< -40%` | Drawdown depth as a risk flag. |
-| `earnings_yield` | `1 / trailing P/E` (P/E from Yahoo fundamentals) | P/E present and `> 0` | `> 6%` | `< 2%` | Value factor (inverse P/E). If P/E is unusable *and* SEC net income is negative, the indicator is forced `bearish` with `value: null` ("negative trailing earnings") instead of `unavailable`. |
-| `fcf_yield` | `free_cash_flow / market_cap` (FCF from SEC, cap from Yahoo) | both present, cap `> 0` | `> 5%` | `< 1%` | Quality/value factor — cash generation relative to price. |
-| `profit_margin` | Yahoo `profitMargins`, used directly | present | `> 15%` | `< 0%` | Quality factor (profitability). |
-| `debt_to_assets` | `total_debt / total_assets` (SEC) | both present, assets `> 0` | `< 15%` (reversed polarity — low leverage is bullish) | `> 50%` | Leverage/quality risk flag. |
-| `days_to_earnings` | Calendar date diff from Yahoo's earnings calendar | earnings date known | — | — | Always `neutral`; timing context (event-risk window around earnings), not a directional signal. |
+| Key | Formula (as coded) | Min data | Evidence rationale |
+| --- | --- | --- | --- |
+| `momentum_12_1` | `close[-21] / close[-252] - 1` | 252 closes | 12-month-minus-1-month momentum; the 1-month gap is the standard exclusion for short-term reversal. |
+| `momentum_6m` | `close[-1] / close[-126] - 1` | 126 closes | Shorter-horizon momentum context. |
+| `pct_from_52w_high` | `close[-1] / max(close[-252:]) - 1` | 60 closes | Proximity to a 52-week high; a deep discount from the high is a risk flag. |
+| `trend_200d` | `close[-1] / mean(close[-200:]) - 1` | 200 closes | Price above/below its long moving average. |
+| `realized_vol_90d` | `std(daily returns, last 90) * sqrt(252)` | 90 closes | Realized volatility as a risk flag. |
+| `beta_1y` | `cov(symbol returns, SPY returns) / var(SPY returns)`, aligned daily returns, last 252 rows | 200 aligned return rows, nonzero SPY variance | Informational market-risk context only. |
+| `max_drawdown_1y` | `min(window / cummax(window) - 1)` over last 252 (or fewer) closes | 60 closes | Drawdown depth as a risk flag. |
+| `earnings_yield` | `1 / trailing P/E` (P/E from Yahoo fundamentals) | P/E present and `> 0` | Value factor (inverse P/E). If P/E is unusable *and* SEC net income is negative, the indicator is forced `bearish` with `value: null` ("negative trailing earnings") instead of `unavailable`. |
+| `fcf_yield` | `free_cash_flow / market_cap` (FCF from SEC, cap from Yahoo) | both present, cap `> 0` | Quality/value factor — cash generation relative to price. |
+| `profit_margin` | Yahoo `profitMargins`, used directly | present | Quality factor (profitability). |
+| `debt_to_assets` | `total_debt / total_assets` (SEC) | both present, assets `> 0` | Leverage/quality risk flag. |
+| `days_to_earnings` | Calendar date diff from Yahoo's earnings calendar | earnings date known | Timing context around earnings, not a directional signal. |
+| `trend_50d` | `close[-1] / mean(close[-50:]) - 1` | 50 closes | Shorter trend window for securities that often lack 200 trading days of usable history. |
+| `avg_dollar_volume_20d` | `mean(close[-20:] * volume[-20:])` | 20 aligned close+volume rows | Tradability and exit/liquidity context. |
+| `relative_volume` | `volume[-1] / mean(volume[-21:-1])` | 21 volume rows and nonzero denominator | Confirms whether current volume is unusual. |
+| `zero_volume_days_90d` | `int((volume[-90:] == 0).sum())` | 90 volume rows | Illiquidity flag. |
+| `share_dilution` | `shares_outstanding / shares_outstanding_prior - 1` | current and prior SEC share counts, prior `> 0` | Period-over-period dilution; the detail names both SEC periods. |
+| `cash_runway_months` | if `operating_cash_flow < 0`: `cash_and_equivalents / (abs(operating_cash_flow) / 12)`; if `operating_cash_flow >= 0`: `value: null`, forced `bullish` | cash and operating cash flow present | Survival runway for cash-burning companies; positive operating cash flow is treated as self-funding. |
+| `filing_recency_days` | `(today_utc - date(financials.filed)).days` | parseable SEC filed date | Stale-filer risk. |
+| `float_shares` | `fundamentals.float_shares` | Yahoo float shares present | Float/squeeze/volatility context; detail shows millions. |
 
-`beta_1y` and `days_to_earnings` are informational-only: they carry no entry in
-the internal threshold table and always report `neutral`. The other 10 map to
-a `(bullish_at, bearish_at)` pair; values strictly beyond the threshold flip
-the signal, otherwise it's `neutral`.
+Signal thresholds are profile-owned policy (§3). A missing threshold entry means
+the indicator is informational and reports `neutral` when it has a value. A
+threshold entry maps to `(bullish_at, bearish_at, reversed_polarity)`; values
+strictly beyond the threshold flip the signal, otherwise it is `neutral`.
 
 The scorecard (`IndicatorScorecard`) tallies `bullish`/`bearish`/`neutral`/
 `unavailable` counts and a `data_completeness` fraction (`indicators with a
-non-null value / 12`). It is cached under namespace `scorecard`, keyed by
-`SYMBOL:YYYY-MM-DD` (UTC date), TTL 24 h.
+non-null value / len(indicators)`). It is cached under namespace `scorecard`,
+keyed by `SYMBOL:PROFILE:YYYY-MM-DD` (UTC date), TTL 24 h.
 
-## 3. LLM research pipeline
+## 3. Profiles
+
+Profiles are frozen policy objects in `app/profiles/`. They decide which
+indicators run, how those indicators are thresholded, how completeness maps to
+confidence, how position-size bands are chosen, what stance is injected into
+the LLM prompt, and whether a security is eligible for mean-variance
+optimization.
+
+**Selection rules** (`app/profiles/__init__.py::select_profile`), first match
+wins:
+
+1. Manual override (`--profile penny|largecap` or `?profile=penny|largecap`) →
+   that profile, reason `"manual override"`.
+2. `fundamentals.exchange in {"PNK", "OTC", "OEM", "OQB", "OQX"}` → penny,
+   reason `"OTC-listed ({exchange})"`.
+3. `quote.price < 5.0` → penny, reason `"price ${price} < $5"`.
+4. `fundamentals.market_cap < 75_000_000` → penny, reason
+   `"market cap ${cap} < $75M"`.
+5. Otherwise, including all fields missing → largecap, reason `"default"`.
+
+Report caching carries the override, not the derived profile, because profile
+selection happens inside the cached `produce()` function after data is fetched:
+`f"{sym}:{day}:{mode}:{profile_override or 'auto'}"`. Scorecard caching carries
+the derived profile: `f"{sym}:{profile.key}:{today}"`.
+
+**Large-cap profile** (`app/profiles/largecap.py`):
+
+| Field | Value |
+| --- | --- |
+| `key` | `largecap` |
+| `label` | `Large cap` |
+| `indicator_keys` | `momentum_12_1`, `momentum_6m`, `pct_from_52w_high`, `trend_200d`, `realized_vol_90d`, `beta_1y`, `max_drawdown_1y`, `earnings_yield`, `fcf_yield`, `profit_margin`, `debt_to_assets`, `days_to_earnings` |
+| `optimizer_included` | `True` |
+| `research_stance` | `""` |
+
+| Key | `bullish_at` | `bearish_at` | `reversed_polarity` |
+| --- | ---: | ---: | --- |
+| `momentum_12_1` | `0.10` | `-0.10` | `False` |
+| `momentum_6m` | `0.08` | `-0.08` | `False` |
+| `pct_from_52w_high` | `-0.05` | `-0.20` | `False` |
+| `trend_200d` | `0.0` | `-0.02` | `False` |
+| `realized_vol_90d` | `nan` | `0.60` | `False` |
+| `beta_1y` | no entry | no entry | no entry |
+| `max_drawdown_1y` | `nan` | `-0.40` | `False` |
+| `earnings_yield` | `0.06` | `0.02` | `False` |
+| `fcf_yield` | `0.05` | `0.01` | `False` |
+| `profit_margin` | `0.15` | `0.0` | `False` |
+| `debt_to_assets` | `0.15` | `0.50` | `True` |
+| `days_to_earnings` | no entry | no entry | no entry |
+
+**Penny / micro-cap profile** (`app/profiles/penny.py`):
+
+| Field | Value |
+| --- | --- |
+| `key` | `penny` |
+| `label` | `Penny / micro-cap` |
+| `indicator_keys` | `trend_50d`, `trend_200d`, `pct_from_52w_high`, `momentum_6m`, `realized_vol_90d`, `max_drawdown_1y`, `avg_dollar_volume_20d`, `relative_volume`, `zero_volume_days_90d`, `share_dilution`, `cash_runway_months`, `filing_recency_days`, `debt_to_assets`, `float_shares`, `days_to_earnings` |
+| `optimizer_included` | `False` |
+
+| Key | `bullish_at` | `bearish_at` | `reversed_polarity` |
+| --- | ---: | ---: | --- |
+| `trend_50d` | `0.0` | `-0.05` | `False` |
+| `trend_200d` | `0.0` | `-0.02` | `False` |
+| `pct_from_52w_high` | `-0.10` | `-0.50` | `False` |
+| `momentum_6m` | no entry | no entry | no entry |
+| `realized_vol_90d` | `nan` | `1.50` | `False` |
+| `max_drawdown_1y` | `nan` | `-0.60` | `False` |
+| `avg_dollar_volume_20d` | `2_000_000` | `200_000` | `False` |
+| `relative_volume` | no entry | no entry | no entry |
+| `zero_volume_days_90d` | `1` | `5` | `True` |
+| `share_dilution` | `0.03` | `0.15` | `True` |
+| `cash_runway_months` | `24` | `6` | `False` |
+| `filing_recency_days` | `nan` | `150` | `True` |
+| `debt_to_assets` | `0.15` | `0.50` | `True` |
+| `float_shares` | no entry | no entry | no entry |
+| `days_to_earnings` | no entry | no entry | no entry |
+
+Penny stance text injected into the research prompt and critic ground truth:
+
+> This is a PENNY / MICRO-CAP stock (profile: penny). Operate with elevated skepticism: assume dilution and promotional activity until the filings show otherwise. Weigh survival metrics (cash runway, share dilution, filing recency, liquidity) above valuation metrics. News items may be paid promotion — treat headlines as claims, not facts. The bull case must clear a higher evidentiary bar than the bear case. Missing or stale SEC filings are themselves bearish evidence, not merely missing data.
+
+**Confidence weights and caps**:
+
+| Profile | Quote | Fundamentals | SEC financials | News | Macro | Scorecard | `dark_company_cap` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| largecap | `0.25` | `0.15` | `0.20` | `0.10` | `0.05` | `0.25` | `False` |
+| penny | `0.25` | `0.10` | `0.30` | `0.0` | `0.0` | `0.35` | `True` |
+
+For penny, news and macro have zero weight and therefore do not add confidence
+or reason lines. If `dark_company_cap` is true and `data.financials is None`,
+confidence is capped at `low` with reason
+`"no SEC financials: dark-company cap low"`.
+
+**Sizing bands**:
+
+| Profile | High | Medium | Low | Liquidity sizing |
+| --- | --- | --- | --- | --- |
+| largecap | `(0.05, 0.10)` | `(0.03, 0.06)` | `(0.015, 0.03)` | `None` |
+| penny | `(0.01, 0.03)` | `(0.005, 0.015)` | `(0.0025, 0.0075)` | `max_participation=0.10`, `max_days_to_exit=3` |
+
+When liquidity sizing is present and `avg_dollar_volume_20d` is known:
+`liquidity_cap_dollars = adv_dollars * max_participation * max_days_to_exit`.
+`low_dollars` and `high_dollars` are capped at that value. If ADV is unknown,
+no cap is applied, but the sizing note warns that liquidity is unknown.
+
+**Optimizer exclusion rule.** The portfolio optimizer excludes any live holding
+whose valuation price is `< 5.0` from the mean-variance symbol list and surfaces
+`"excluded from mean-variance optimization: sample statistics on illiquid micro-caps are unreliable"`.
+If fewer than two symbols remain after exclusion, the optimizer is skipped with
+the same message. Correlation and the allocation backtest keep all symbols.
+
+## 4. LLM research pipeline
 
 **Grounding contract.** Every prompt in the pipeline states the same absolute
 rules, verbatim from `app/llm/research.py` and `app/llm/critic.py`:
@@ -162,19 +283,15 @@ Runs before every audit/re-critique call, independent of the LLM.
   of 12.1) happens to fall within 2% of it. It catches invented magnitudes; it
   cannot catch a real number wired to the wrong fact.
 
-## 4. Confidence
+## 5. Confidence and sizing
 
 `app/indicators/confidence.py::compute_confidence` builds a completeness score
-by summing fixed weights (max 1.0):
-
-| Signal | Weight |
-| --- | --- |
-| Quote present | 0.25 |
-| ≥2 of 5 fundamentals fields present (market cap, trailing/forward P/E, margin, revenue) | 0.15 |
-| SEC financials present | 0.20 |
-| ≥3 news items | 0.10 |
-| Macro context present | 0.05 |
-| Indicator scorecard `data_completeness` | × 0.25 |
+by summing the active profile's weights (§3). The presence rules are stable
+across profiles: quote present; at least 2 of the original 5 fundamentals
+fields present (`market_cap`, `pe_ratio`, `forward_pe`, `profit_margin`,
+`revenue`); SEC financials present; at least 3 news items; macro context
+present; and scorecard `data_completeness × profile.confidence_weights.scorecard`.
+Weights set to `0.0` are skipped entirely, including their reason line.
 
 Completeness maps to a base grade: `≥0.75` → `high`, `≥0.45` → `medium`,
 else `low`.
@@ -183,6 +300,8 @@ else `low`.
 - Any source with status `error` → capped at `medium`.
 - No quote at all → capped at `low` (this cap can stack after the error cap,
   landing at `low` even if completeness alone would say `medium`).
+- Penny profile only: no SEC financials and `dark_company_cap=True` → capped
+  at `low`, with reason `"no SEC financials: dark-company cap low"`.
 
 **Final clamp.** The report's own stated `confidence`, the critic's
 `suggested_confidence`, and this computed grade are combined with
@@ -191,22 +310,19 @@ in `research_ticker_cached`. The model can only ever pull confidence down from
 what the data supports — never up.
 
 **Position sizing** (`app/portfolio/decision_support.py::suggest_position_size`)
-maps the final confidence to a starting-size band, as a fraction of total
-portfolio value:
+maps the final confidence to the active profile's starting-size band (§3), as
+a fraction of total portfolio value. If the symbol is already held, the
+existing weight is treated as consumed headroom within the band: the suggested
+dollar range narrows to `band − current_weight` (floored at 0), and if the
+current weight already meets or exceeds the band's high end, the guidance
+switches to "already at band — adding would increase concentration."
 
-| Confidence | Band |
-| --- | --- |
-| high | 5.0–10.0% |
-| medium | 3.0–6.0% |
-| low | 1.5–3.0% |
+For profiles with liquidity sizing, the web route passes the
+`avg_dollar_volume_20d` indicator value into `suggest_position_size` as
+`adv_dollars`. The cap formula is exactly:
+`liquidity_cap_dollars = adv_dollars * max_participation * max_days_to_exit`.
 
-If the symbol is already held, the existing weight is treated as consumed
-headroom within the band: the suggested dollar range narrows to
-`band − current_weight` (floored at 0), and if the current weight already
-meets or exceeds the band's high end, the guidance switches to "already at
-band — adding would increase concentration."
-
-## 5. Portfolio math
+## 6. Portfolio math
 
 **Valuation aggregation** (`app/portfolio/holdings.py::value_holdings`).
 `total_value`, `total_cost`, and `total_unrealized_pl` are summed **only**
@@ -245,10 +361,15 @@ maps to `MAXIMIZE_RATIO`, `min_risk` to `MINIMIZE_RISK`. `risk_free_rate`
 computed Sharpe (`(annualized return − rf) / annualized volatility`, using
 sample mean × 252 and sample covariance × 252 — no shrinkage).
 
+- **Penny-price exclusion at the web route**: before calling `optimize()`, the
+  portfolio route removes any live holding whose valuation price is `< 5.0`.
+  The warning text is
+  `"excluded from mean-variance optimization: sample statistics on illiquid micro-caps are unreliable"`.
+  If fewer than two symbols remain after exclusion, the optimizer is skipped
+  with the same message. Correlation and allocation backtest keep all symbols.
 - **Per-asset cap**: `max_weight` (default 0.35) is relaxed to `1/n` if the
   requested cap is infeasible for `n` assets (e.g. 4 assets can't each stay
   under 20%); a warning records the relaxation.
-  A single-asset portfolio (`n=1`) skips optimization entirely (weight = 100%).
 - **Efficient frontier**: only computed when `n ≥ 2` and `frontier_points ≥ 2`
   (default 20), via a separate `MINIMIZE_RISK` sweep at `efficient_frontier_size`
   points.
@@ -277,7 +398,7 @@ returns; a pair is "high" at `≥ 0.80`. Portfolio-level `level`:
 `avg_correlation ≥ 0.40` or any high pair exists; else `low`. Cached per
 symbol-set + lookback + trading day (namespace `correlation`, 24 h TTL).
 
-## 6. Known limitations
+## 7. Known limitations
 
 - **No outcome tracking.** Nothing in this codebase records what a report
   predicted against what actually happened later — there is no calibration
@@ -288,9 +409,13 @@ symbol-set + lookback + trading day (namespace `correlation`, 24 h TTL).
 - **No cash tracking.** Portfolio weights are equity-only — there's no
   concept of un-invested cash, so a portfolio with a large uninvested cash
   balance shows equity-only weights that don't reflect true concentration.
-- **Fabrication check is magnitude-only**, not semantic (see §3) — it can
+- **Fabrication check is magnitude-only**, not semantic (see §4) — it can
   match a fabricated number to an unrelated real figure that happens to be
   numerically close.
+- **SEC comparative periods are not guaranteed to be exactly annual.**
+  `share_dilution` uses the oldest and newest available SEC share-count period
+  columns; those are usually roughly one fiscal year apart but not guaranteed.
+  The indicator detail names both periods.
 - **Single-currency assumption.** Holdings valuation and portfolio math treat
   every quote as USD; a non-USD `Quote.currency` value is stored but never
   converted before being summed into totals or fed into return calculations.
