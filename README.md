@@ -37,6 +37,7 @@ uv run uvicorn app.web.app:app --reload --port 8000
 | Key | Required? | Unlocks | Degrades to, if unset |
 | --- | --- | --- | --- |
 | `OPENROUTER_API_KEY` | **Required** | All LLM calls (research, critic, discovery) via OpenRouter. | Research and discovery fail outright; the web app still starts and logs a startup warning. |
+| `DAILY_LLM_BUDGET_USD` | Optional | Daily UTC spend ceiling for new LLM runs; default `$5`, set `0` to disable. | Cached research reports still load, but uncached research and discovery are blocked once recorded spend reaches the limit. |
 | `FINNHUB_API_KEY` | Optional | Real-time US quotes and company news, preferred over Yahoo's when present. | Falls back to Yahoo Finance for quotes and news; the Finnhub source keys are simply absent from `sources` rather than marked `error`. |
 | `FRED_API_KEY` | Optional | Macro context (fed funds rate, CPI YoY, 10y treasury, unemployment, GDP growth) injected into the research prompt. | Macro is skipped entirely (`sources.macro = "disabled"`) — the report has no macro section rather than a stale or empty one. |
 | `SEC_IDENTITY` | Optional | The contact email SEC EDGAR requires for XBRL financials (revenue, margins, debt, FCF). | Financials still fetch, attributed to a hardcoded fallback address — set your own for real use. |
@@ -110,8 +111,9 @@ Each research report makes several LLM calls; approximate per-report cost:
 Every LLM call's tokens, cache-read tokens, duration, and real USD cost (from
 OpenRouter usage accounting) are appended as one JSON line per run to
 `.cache/usage.jsonl`. Run `uv run stocks usage` for a rolling summary, or read
-the file directly. See [docs/operations.md](docs/operations.md) for the event
-shape.
+the file directly. `DAILY_LLM_BUDGET_USD` caps new paid runs by UTC day; cached
+reports are still served after the cap is reached. See
+[docs/operations.md](docs/operations.md) for the event shape.
 
 ## Test
 

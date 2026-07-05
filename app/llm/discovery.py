@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from ..data import fetch_ticker_data
 from ..data.screener import SCREEN_IDS, run_screen
 from ..schemas import Candidate, DiscoveryResult
+from .budget import check_budget
 from .provider import workhorse_model, workhorse_settings
 from .usage import run_tracked
 
@@ -109,6 +110,7 @@ def _passes(filters: _Filters, market_cap: float | None, pe: float | None) -> bo
 
 
 async def discover_ideas(goal: str, limit: int = 8) -> DiscoveryResult:
+    check_budget()
     plan_result = await run_tracked(
         "discover-plan", _get_plan_agent(), f"Investment goal:\n{goal}\n\nPropose a screening plan.", _CHEAP
     )

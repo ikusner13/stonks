@@ -15,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import db
 from ..config import OPENROUTER_API_KEY
+from ..llm.budget import BudgetExceededError
 from ..llm.discovery import discover_ideas
 from ..llm.pipeline import InsufficientDataError, research_ticker_cached
 from ..llm.usage import format_event, with_run
@@ -139,6 +140,12 @@ async def discover(request: Request, goal: str = Form("")):
         return templates.TemplateResponse(
             request, "partials/candidates.html", {"result": result, "watched_symbols": watched}
         )
+    except BudgetExceededError as e:
+        return _error_partial(
+            request,
+            f"Daily LLM budget reached (${e.spent:.2f} of ${e.limit:.2f}). "
+            "Resets at midnight UTC; cached reports still load.",
+        )
     except Exception:
         logger.exception("discover failed")
         return _error_partial(request, "Discovery failed — see server logs.")
@@ -181,6 +188,12 @@ async def research_report(request: Request, symbol: str, mode: str = "thorough",
             request,
             "partials/research_report.html",
             {"result": result, "mode": mode, "watched": db.has(sym), "sizing": sizing},
+        )
+    except BudgetExceededError as e:
+        return _error_partial(
+            request,
+            f"Daily LLM budget reached (${e.spent:.2f} of ${e.limit:.2f}). "
+            "Resets at midnight UTC; cached reports still load.",
         )
     except InsufficientDataError:
         logger.exception("research failed: insufficient data for %s", sym)

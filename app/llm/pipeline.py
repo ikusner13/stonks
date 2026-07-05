@@ -12,6 +12,7 @@ from ..data import fetch_ticker_data
 from ..indicators.confidence import clamp_confidence, compute_confidence
 from ..indicators.engine import compute_scorecard
 from ..schemas import ResearchResult
+from .budget import check_budget
 from .critic import ReviewMode, research_ticker_reviewed
 from .usage import annotate_run
 
@@ -43,6 +44,7 @@ async def research_ticker_cached(
     key = f"{sym}:{_trading_day()}:{mode}"
 
     async def produce() -> dict:
+        check_budget()
         ticker = await fetch_ticker_data(sym, fresh=fresh)
         if ticker.quote is None and ticker.fundamentals.market_cap is None:
             raise InsufficientDataError(sym, ticker.sources)
