@@ -4,9 +4,9 @@ from app import config, db
 from app.indicators.schemas import Indicator, IndicatorScorecard
 from app.llm.pipeline import InsufficientDataError
 from app.portfolio import holdings as holdings_mod
-from app.portfolio.decision_support import PositionSizeGuidance
-from app.portfolio.holdings import PortfolioValuation
-from app.portfolio.optimize import OptimizeResult, PortfolioMetrics
+from app.portfolio.decision_support import CorrelationInsight, PositionSizeGuidance
+from app.portfolio.holdings import HoldingValuation, PortfolioValuation
+from app.portfolio.optimize import FrontierPoint, OptimizeResult, PortfolioMetrics
 from app.schemas import Critique, FabricationCheck, ResearchResult, Thesis, TickerData, TickerReport
 from app.web import app as web_app
 
@@ -254,3 +254,186 @@ def test_portfolio_cash_post_updates_cash_and_ignores_garbage(monkeypatch, tmp_p
     assert response.status_code == 200
     assert db.get_cash() == 123.45
     assert "$123.45" in response.text
+
+
+def test_portfolio_health_partial_contains_allocation_donut_and_legend(monkeypatch):
+    async def fake_value_holdings():
+        return PortfolioValuation(
+            holdings=[
+                HoldingValuation(
+                    symbol="AAA",
+                    shares=10,
+                    avg_cost=5,
+                    price=12,
+                    market_value=120,
+                    cost_value=50,
+                    unrealized_pl=70,
+                    unrealized_pl_pct=1.4,
+                    weight=0.6,
+                ),
+                HoldingValuation(
+                    symbol="BBB",
+                    shares=5,
+                    avg_cost=10,
+                    price=16,
+                    market_value=80,
+                    cost_value=50,
+                    unrealized_pl=30,
+                    unrealized_pl_pct=0.6,
+                    weight=0.4,
+                ),
+                HoldingValuation(
+                    symbol="MISS",
+                    shares=1,
+                    avg_cost=1,
+                    price=None,
+                    market_value=None,
+                    cost_value=1,
+                    unrealized_pl=None,
+                    unrealized_pl_pct=None,
+                    weight=None,
+                ),
+            ],
+            total_value=200,
+            total_cost=100,
+            total_unrealized_pl=100,
+            total_unrealized_pl_pct=1,
+            cash=50,
+            total_with_cash=250,
+            cash_pct=0.2,
+            asof="2026-07-05T00:00:00Z",
+            unpriced_symbols=["MISS"],
+        )
+
+    monkeypatch.setattr(web_app, "value_holdings", fake_value_holdings)
+    monkeypatch.setattr(web_app, "record_snapshot", lambda valuation: True)
+    client = TestClient(web_app.app)
+
+    response = client.get("/portfolio")
+
+    assert response.status_code == 200
+    assert '<svg viewBox="0 0 220 220"' in response.text
+    assert "AAA" in response.text
+    assert "BBB" in response.text
+    assert "Cash" in response.text
+    assert "Excluded from allocation because prices are unavailable: MISS" in response.text
+
+
+def test_correlation_partial_with_matrix_renders_n_squared_cells(monkeypatch):
+    async def fake_value_holdings():
+        return PortfolioValuation(
+            holdings=[
+                HoldingValuation(
+                    symbol="BIG",
+                    shares=1,
+                    avg_cost=None,
+                    price=60,
+                    market_value=60,
+                    cost_value=None,
+                    unrealized_pl=None,
+                    unrealized_pl_pct=None,
+                    weight=0.6,
+                ),
+                HoldingValuation(
+                    symbol="MID",
+                    shares=1,
+                    avg_cost=None,
+                    price=30,
+                    market_value=30,
+                    cost_value=None,
+                    unrealized_pl=None,
+                    unrealized_pl_pct=None,
+                    weight=0.3,
+                ),
+                HoldingValuation(
+                    symbol="SM",
+                    shares=1,
+                    avg_cost=None,
+                    price=10,
+                    market_value=10,
+                    cost_value=None,
+                    unrealized_pl=None,
+                    unrealized_pl_pct=None,
+                    weight=0.1,
+                ),
+            ],
+            total_value=100,
+            total_cost=0,
+            total_unrealized_pl=0,
+            total_unrealized_pl_pct=0,
+            cash=0,
+            total_with_cash=100,
+            cash_pct=0,
+            asof="2026-07-05T00:00:00Z",
+        )
+
+    seen = {}
+
+    async def fake_compute_correlation_insight(symbols):
+        seen["symbols"] = symbols
+        matrix = {
+            "BIG": {"BIG": 1.0, "MID": 0.85, "SM": -0.25},
+            "MID": {"BIG": 0.85, "MID": 1.0, "SM": 0.1},
+            "SM": {"BIG": -0.25, "MID": 0.1, "SM": 1.0},
+        }
+        return CorrelationInsight(
+            symbols=symbols,
+            avg_correlation=0.23,
+            high_pairs=[],
+            level="low",
+            note="ok",
+            matrix=matrix,
+        )
+
+    monkeypatch.setattr(web_app, "value_holdings", fake_value_holdings)
+    monkeypatch.setattr(web_app, "compute_correlation_insight", fake_compute_correlation_insight)
+    client = TestClient(web_app.app)
+
+    response = client.get("/portfolio/correlation")
+
+    assert response.status_code == 200
+    assert seen["symbols"] == ["BIG", "MID", "SM"]
+    assert response.text.count("<td") == 9
+    assert "0.85" in response.text
+    assert "-0.25" in response.text
+
+
+def test_optimizer_partial_contains_frontier_polyline(monkeypatch):
+    def fake_optimize(req):
+        metrics = PortfolioMetrics(
+            weights={"AAA": 0.5, "BBB": 0.5},
+            expected_return=0.10,
+            volatility=0.20,
+            sharpe=0.5,
+        )
+        return OptimizeResult(
+            asof="2026-07-05T00:00:00Z",
+            objective=req.objective,
+            lookback_days=req.lookback_days,
+            symbols=["AAA", "BBB"],
+            optimal=metrics,
+            current=metrics,
+            efficient_frontier=[
+                FrontierPoint(expected_return=0.05, volatility=0.10, sharpe=0.5),
+                FrontierPoint(expected_return=0.10, volatility=0.20, sharpe=0.5),
+                FrontierPoint(expected_return=0.15, volatility=0.30, sharpe=0.5),
+            ],
+            warnings=[],
+        )
+
+    monkeypatch.setattr(web_app, "optimize", fake_optimize)
+    client = TestClient(web_app.app)
+
+    response = client.post(
+        "/portfolio/optimize",
+        data={
+            "symbol": ["AAA", "BBB"],
+            "value": ["1000", "1000"],
+            "price": ["25", "30"],
+            "objective": "max_sharpe",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Efficient frontier chart" in response.text
+    assert "<polyline" in response.text

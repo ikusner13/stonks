@@ -95,7 +95,12 @@ def test_build_nav_series_computes_deltas_and_polyline():
     assert series.change_1d_pct == pytest.approx(10 / 120)
     assert series.change_total == 30
     assert series.change_total_pct == pytest.approx(30 / 100)
-    assert series.svg_polyline == "0.00,120.00 300.00,40.00 600.00,0.00"
+    assert series.chart is not None
+    assert series.chart.polyline == "0.00,120.00 300.00,40.00 600.00,0.00"
+    assert series.chart.fill_path == (
+        "M 0.00,120.00 L 0.00,120.00 300.00,40.00 600.00,0.00 "
+        "L 600.00,120.00 Z"
+    )
 
 
 def test_build_nav_series_handles_single_and_flat_series():
@@ -109,7 +114,7 @@ def test_build_nav_series_handles_single_and_flat_series():
             unrealized_pl=10,
         )
     ])
-    assert one_point.svg_polyline is None
+    assert one_point.chart is None
     assert one_point.change_1d is None
     assert one_point.change_total is None
 
@@ -131,7 +136,8 @@ def test_build_nav_series_handles_single_and_flat_series():
             unrealized_pl=10,
         ),
     ])
-    assert flat.svg_polyline == "0.00,60.00 600.00,60.00"
+    assert flat.chart is not None
+    assert flat.chart.polyline == "0.00,60.00 600.00,60.00"
 
 
 def test_nav_route_renders_partial():

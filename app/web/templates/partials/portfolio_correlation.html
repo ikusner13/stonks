@@ -31,6 +31,57 @@
 </div>
 {% endif %}
 
+{% if insight.matrix %}
+<div class="mt-5 overflow-x-auto">
+  <table class="min-w-full border-separate border-spacing-1 text-xs">
+    <thead>
+      <tr>
+        <th class="p-2 text-left font-medium text-[var(--sea-ink-soft)]">ρ</th>
+        {% for sym in symbols %}
+        <th class="p-2 text-center font-medium text-[var(--sea-ink-soft)]">{{ sym }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in symbols %}
+      <tr>
+        <th class="p-2 text-left font-medium text-[var(--sea-ink-soft)]">{{ row }}</th>
+        {% for col in symbols %}
+        {% if row == col %}
+        <td class="h-10 min-w-12 rounded-md border border-[var(--line)] bg-[var(--chip-bg)] text-center"></td>
+        {% else %}
+        {% set rho = insight.matrix.get(row, {}).get(col) %}
+        {% if rho is none %}
+        <td class="h-10 min-w-12 rounded-md border border-[var(--line)] bg-[var(--chip-bg)] text-center text-[var(--sea-ink-soft)]">n/a</td>
+        {% else %}
+        {% set colors = corr_color(rho) %}
+        <td class="h-10 min-w-12 rounded-md border text-center font-medium tabular-nums {% if rho >= insight.threshold %}border-2 border-[var(--sea-ink)]{% else %}border-[var(--line)]{% endif %}"
+            style="background: {{ colors[0] }}; color: {{ colors[1] }}">
+          {{ '%.2f' | format(rho) }}
+        </td>
+        {% endif %}
+        {% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="mt-2 flex items-center gap-2 text-xs text-[var(--sea-ink-soft)]">
+    <span>-1</span>
+    {% for rho in [-1, -0.5, 0, 0.5, 1] %}
+    {% set colors = corr_color(rho) %}
+    <span class="h-2 w-10 rounded-sm" style="background: {{ colors[0] }}"></span>
+    {% endfor %}
+    <span>+1</span>
+    <span class="ml-2">Blue = inverse, white = independent, red = moves together.</span>
+  </div>
+</div>
+{% else %}
+<p class="mt-4 rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-3 text-xs text-[var(--sea-ink-soft)]">
+  Correlation matrix will appear after the 24-hour correlation cache refreshes.
+</p>
+{% endif %}
+
 <details class="mt-3 text-xs text-[var(--sea-ink-soft)]">
   <summary class="cursor-pointer font-medium">What "correlation" means and why it matters</summary>
   <p class="mt-2">

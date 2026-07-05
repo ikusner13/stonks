@@ -37,7 +37,6 @@ from ..portfolio.decision_support import (
 )
 from ..portfolio.holdings import (
     init_holdings_db,
-    list_holdings,
     remove_holding,
     upsert_holding,
     value_holdings,
@@ -57,6 +56,7 @@ from ..portfolio.snapshots import (
     list_snapshots,
     record_snapshot,
 )
+from .charts import corr_color, donut, frontier_chart
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -142,6 +142,17 @@ def _scorecard_indicator_value(result, key: str) -> float | None:
 
 def _optimizer_exclusion_warnings(symbols: list[str]) -> list[str]:
     return [f"{symbol}: {OPTIMIZER_EXCLUSION_WARNING}" for symbol in symbols]
+
+
+def _allocation_slices(valuation) -> list:
+    slices = [
+        (h.symbol, h.market_value)
+        for h in valuation.holdings
+        if h.market_value is not None and h.market_value > 0
+    ]
+    if valuation.cash > 0:
+        slices.append(("Cash", valuation.cash))
+    return donut(slices)
 
 
 def _error_partial(
@@ -339,6 +350,7 @@ async def portfolio_page(request: Request):
         for v in valuation.holdings
     ]
     health = assess_portfolio_health(valuation)
+    allocation_slices = _allocation_slices(valuation)
     return templates.TemplateResponse(
         request,
         "portfolio.html",
@@ -347,6 +359,7 @@ async def portfolio_page(request: Request):
             "valuation": valuation,
             "optimizer_rows": optimizer_rows,
             "health": health,
+            "allocation_slices": allocation_slices,
             "ds_disclaimer": DS_DISCLAIMER,
         },
     )
@@ -639,12 +652,23 @@ async def portfolio_nav(request: Request):
 @app.get("/portfolio/correlation", response_class=HTMLResponse)
 async def portfolio_correlation(request: Request):
     try:
-        symbols = [h.symbol for h in list_holdings()]
+        valuation = await value_holdings()
+        ordered_holdings = sorted(
+            valuation.holdings,
+            key=lambda h: h.weight if h.weight is not None else -1.0,
+            reverse=True,
+        )
+        symbols = [h.symbol for h in ordered_holdings]
         insight = await compute_correlation_insight(symbols) if len(symbols) >= 2 else None
         return templates.TemplateResponse(
             request,
             "partials/portfolio_correlation.html",
-            {"insight": insight, "too_few": len(symbols) < 2},
+            {
+                "insight": insight,
+                "symbols": symbols,
+                "too_few": len(symbols) < 2,
+                "corr_color": corr_color,
+            },
         )
     except Exception:
         logger.exception("portfolio correlation failed")
@@ -781,8 +805,9 @@ async def portfolio_optimize(request: Request):
         )
     drift = analyze_drift(result)
     result.warnings = exclusion_warnings + result.warnings
+    chart = frontier_chart(result.efficient_frontier, result.optimal, result.current)
     return templates.TemplateResponse(
         request,
         "partials/portfolio_results.html",
-        {"available": True, "result": result, "drift": drift},
+        {"available": True, "result": result, "drift": drift, "frontier_chart": chart},
     )
