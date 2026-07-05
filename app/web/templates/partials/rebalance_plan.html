@@ -26,6 +26,7 @@
           <th class="pb-2 text-left font-medium">Symbol</th>
           <th class="pb-2 text-right font-medium">Current</th>
           <th class="pb-2 text-right font-medium">Target</th>
+          <th class="pb-2 text-right font-medium">After</th>
           <th class="pb-2 text-right font-medium">Drift</th>
           <th class="pb-2 text-right font-medium">Action</th>
           <th class="pb-2 text-right font-medium">$ Amount</th>
@@ -38,6 +39,7 @@
           <td class="py-3 pr-4 font-semibold">{{ item.symbol }}</td>
           <td class="py-3 pr-4 text-right tabular-nums">{{ item.current_weight | pct }}</td>
           <td class="py-3 pr-4 text-right tabular-nums">{{ item.target_weight | pct }}</td>
+          <td class="py-3 pr-4 text-right tabular-nums">{{ item.after_weight | pct }}</td>
           <td class="py-3 pr-4 text-right tabular-nums {% if item.drift > plan.threshold %}text-amber-500{% elif item.drift < -plan.threshold %}text-sky-500{% endif %}">
             {{ '+' if item.drift >= 0 else '' }}{{ item.drift | pct }}
           </td>
@@ -60,6 +62,25 @@
     <p>Untargeted holdings excluded from trades: {{ plan.untargeted | join(", ") }}.</p>
     {% endif %}
     <p>{{ ds_disclaimer }}</p>
+  </div>
+
+  <div class="mt-6 border-t border-[var(--line)] pt-5">
+    <form hx-post="/portfolio/whatif"
+          hx-target="#whatif-result"
+          hx-swap="innerHTML"
+          class="flex flex-wrap items-end gap-3">
+      <div class="flex flex-col gap-1">
+        <label class="text-xs text-[var(--sea-ink-soft)]">New contribution</label>
+        <input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal"
+          placeholder="1000.00"
+          class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+      </div>
+      <button type="submit"
+        class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
+        Preview buys
+      </button>
+    </form>
+    <div id="whatif-result" class="mt-4"></div>
   </div>
   {% endif %}
 </div>

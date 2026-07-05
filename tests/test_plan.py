@@ -4,9 +4,11 @@ from fastapi.testclient import TestClient
 from app import config, db
 from app.portfolio.holdings import HoldingValuation, PortfolioValuation
 from app.portfolio.plan import (
+    ContributionPlan,
     Target,
     init_targets_db,
     list_targets,
+    plan_contribution,
     plan_rebalance,
     set_targets,
 )
@@ -102,20 +104,24 @@ def test_plan_rebalance_math_and_edge_cases():
     assert by_symbol["AAA"].action == "buy"
     assert by_symbol["AAA"].delta_usd == 50
     assert by_symbol["AAA"].delta_shares == 5
+    assert by_symbol["AAA"].after_weight == pytest.approx(0.30)
 
     assert by_symbol["BBB"].drift == pytest.approx(0.05)
     assert by_symbol["BBB"].action == "hold"
     assert by_symbol["BBB"].delta_usd == 0
+    assert by_symbol["BBB"].after_weight == pytest.approx(by_symbol["BBB"].current_weight)
 
     assert by_symbol["ZERO"].target_weight == 0
     assert by_symbol["ZERO"].action == "sell"
     assert by_symbol["ZERO"].delta_usd == -100
     assert by_symbol["ZERO"].delta_shares == -5
+    assert by_symbol["ZERO"].after_weight == pytest.approx(0)
 
     assert by_symbol["NEW"].price is None
     assert by_symbol["NEW"].action == "buy"
     assert by_symbol["NEW"].delta_usd == 50
     assert by_symbol["NEW"].delta_shares is None
+    assert by_symbol["NEW"].after_weight == pytest.approx(0.10)
 
     drifts = [abs(item.drift) for item in plan.items]
     assert drifts == sorted(drifts, reverse=True)
@@ -127,6 +133,78 @@ def test_plan_rebalance_returns_none_without_base_or_targets():
     assert plan_rebalance(_valuation(), []) is None
     empty_base = _valuation().model_copy(update={"total_with_cash": 0})
     assert plan_rebalance(empty_base, [Target(symbol="AAA", target_weight=0.5)]) is None
+
+
+def _by_symbol(plan: ContributionPlan) -> dict[str, object]:
+    return {item.symbol: item for item in plan.items}
+
+
+def test_plan_contribution_proportional_split_when_short():
+    targets = [
+        Target(symbol="AAA", target_weight=0.40),
+        Target(symbol="BBB", target_weight=0.40),
+        Target(symbol="ZERO", target_weight=0.20),
+    ]
+
+    plan = plan_contribution(_valuation(), targets, 100)
+
+    assert plan is not None
+    assert plan.contribution == 100
+    assert plan.base_after == 600
+    assert plan.leftover_cash == 0
+    by_symbol = _by_symbol(plan)
+    assert by_symbol["AAA"].buy_usd == pytest.approx(46.66)
+    assert by_symbol["BBB"].buy_usd == pytest.approx(46.67)
+    assert by_symbol["ZERO"].buy_usd == pytest.approx(6.67)
+    assert by_symbol["ZERO"].buy_shares == pytest.approx(0.3335)
+
+
+def test_plan_contribution_full_deficit_leftover_and_after_weights_sum_to_targets():
+    targets = [
+        Target(symbol="AAA", target_weight=0.30),
+        Target(symbol="BBB", target_weight=0.25),
+        Target(symbol="ZERO", target_weight=0.20),
+    ]
+
+    plan = plan_contribution(_valuation(), targets, 400)
+
+    assert plan is not None
+    assert plan.base_after == 900
+    by_symbol = _by_symbol(plan)
+    assert by_symbol["AAA"].buy_usd == 170
+    assert by_symbol["BBB"].buy_usd == 125
+    assert by_symbol["ZERO"].buy_usd == 80
+    assert plan.leftover_cash == 25
+    assert by_symbol["AAA"].after_weight == pytest.approx(0.30)
+    assert by_symbol["BBB"].after_weight == pytest.approx(0.25)
+    assert by_symbol["ZERO"].after_weight == pytest.approx(0.20)
+
+
+def test_plan_contribution_overweight_symbol_gets_no_buy_and_unpriced_shares_none():
+    targets = [
+        Target(symbol="AAA", target_weight=0.10),
+        Target(symbol="UNP", target_weight=0.30),
+    ]
+
+    plan = plan_contribution(_valuation(), targets, 100)
+
+    assert plan is not None
+    by_symbol = _by_symbol(plan)
+    assert "AAA" not in by_symbol
+    assert by_symbol["UNP"].buy_usd == 100
+    assert by_symbol["UNP"].buy_shares is None
+    assert by_symbol["UNP"].current_weight == 0
+    assert by_symbol["UNP"].after_weight == pytest.approx(100 / 600)
+
+
+def test_plan_contribution_returns_none_for_non_positive_or_invalid_base():
+    targets = [Target(symbol="AAA", target_weight=0.30)]
+
+    assert plan_contribution(_valuation(), targets, 0) is None
+    assert plan_contribution(_valuation(), targets, -1) is None
+    assert plan_contribution(_valuation(), [], 100) is None
+    empty_base = _valuation().model_copy(update={"total_with_cash": 0})
+    assert plan_contribution(empty_base, targets, 100) is None
 
 
 def test_targets_routes_valid_and_invalid(monkeypatch: pytest.MonkeyPatch):
@@ -198,3 +276,32 @@ def test_rebalance_route_with_and_without_targets(monkeypatch: pytest.MonkeyPatc
     assert "AAA" in response.text
     assert "ZERO" in response.text
     assert "Untargeted holdings excluded from trades" in response.text
+
+
+def test_whatif_route_valid_and_invalid_amount(monkeypatch: pytest.MonkeyPatch):
+    from app.web import app as web_app
+
+    async def value_holdings() -> PortfolioValuation:
+        return _valuation()
+
+    monkeypatch.setattr(web_app, "value_holdings", value_holdings)
+    set_targets([
+        Target(symbol="AAA", target_weight=0.30),
+        Target(symbol="BBB", target_weight=0.25),
+        Target(symbol="ZERO", target_weight=0.20),
+    ])
+    client = TestClient(web_app.app)
+
+    response = client.post("/portfolio/whatif", data={"amount": "100"})
+
+    assert response.status_code == 200
+    assert "AAA" in response.text
+    assert "Buy $" in response.text
+    assert "Leftover cash" in response.text
+    assert "not investment advice" in response.text
+
+    response = client.post("/portfolio/whatif", data={"amount": "bad"})
+
+    assert response.status_code == 200
+    assert "error-panel" in response.text
+    assert "positive number" in response.text

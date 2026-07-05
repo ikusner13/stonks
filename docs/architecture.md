@@ -56,6 +56,13 @@ assets. Owns no domain logic — every route is a thin composition of calls into
 `data`/`llm`/`indicators`/`portfolio`, plus the Jinja2 numeric-formatting
 filters (`fmt_num`, `fmt_cap`, `pct`). Imports nearly everything else in `app/`.
 
+**`app/jobs.py`** — The in-process daily background loop started from the
+FastAPI lifespan. It sleeps until `DAILY_JOB_HOUR_UTC`, records a NAV snapshot
+from `value_holdings()`, and optionally sends deterministic Discord rebalance
+drift alerts. It imports `app.config`, `app.db`, and `app.portfolio`; it has no
+LLM dependency and never writes the drift-alert dedupe key when a webhook post
+fails.
+
 **`app/cache.py`** — The one dependency-light file-cache primitive
 (`read_cache`/`write_cache`/`with_cache`) every namespace in §3 is built on.
 No external dependency (no Redis/SQLite) — one JSON file per key under
@@ -134,7 +141,8 @@ records a daily NAV snapshot from that valuation, `assess_portfolio_health`
 computed inline from that valuation, and the holdings table — all present in
 the initial HTML. Snapshot writes are wrapped in `try/except` with a warning log,
 so history storage can never break page rendering. The remaining panels and
-forms are then loaded or submitted independently:
+forms are then loaded or submitted independently; the daily job can also
+record that UTC day's NAV without a page visit:
 
 - **A) Holdings, cash, and CSV import** — rendered inline on page load (no HTMX
   round-trip needed for the initial view). Add/remove (`POST /portfolio/holdings`,
@@ -166,7 +174,9 @@ forms are then loaded or submitted independently:
   targets-changed`. `POST /portfolio/targets/adopt` uses optimizer weights as
   targets. `GET /portfolio/rebalance` listens for page load and that trigger,
   recomputes `value_holdings()`, and calls `plan_rebalance()` using
-  `total_with_cash` as the base.
+  `total_with_cash` as the base. Its partial includes a contribution what-if
+  form; `POST /portfolio/whatif` validates a positive amount, recomputes the
+  same valuation/targets, and renders the buy-only `plan_contribution()` result.
 - **F) Optimizer & drift** — the only panel that isn't `hx-trigger="load"`; it
   fires on form submit (`POST /portfolio/optimize`), seeding from the submitted
   rows or, if the form is empty, from current holdings. `optimize()` runs in a
@@ -188,6 +198,29 @@ The independent portfolio panel routes wrap their real work in try/except where
 generic failures are expected, logging the full traceback and returning
 `partials/error.html` with a retry URL where retrying makes sense — a failed
 panel never takes down the rest of the page.
+
+### (c) Background jobs
+
+`app.web.app` owns the FastAPI lifespan. On startup it creates one
+`asyncio.create_task(daily_loop())` when `DAILY_JOB_HOUR_UTC >= 0`; tests can
+set the hour below zero to suppress the loop. On shutdown the task is cancelled
+and awaited.
+
+`daily_loop()` calculates its sleep with `seconds_until_next(hour_utc, now)`,
+then calls `run_daily_jobs()` inside a broad `try/except logger.exception` so
+one failed iteration cannot kill the loop. `run_daily_jobs()` first calls
+`value_holdings()` and `record_snapshot()`. If valuation or snapshot recording
+raises, it logs and returns `{"snapshot": False, "alert": ""}` without trying
+to alert.
+
+Drift alerts run only when both `DRIFT_ALERT_ENABLED` and
+`DISCORD_WEBHOOK_URL` are set. The job builds `plan_rebalance(valuation,
+list_targets())`, keeps non-hold items, and skips empty plans. Dedupe is the
+SQLite `settings` key `last_drift_alert`, stored as
+`YYYY-MM-DD:<sorted actionable symbols csv>`; if the stored symbol set matches
+the current actionable symbol set, the job skips regardless of date. Otherwise
+it posts `{"content": message}` to Discord with `httpx.AsyncClient(timeout=5)`.
+Webhook failures are logged and do not update the dedupe key.
 
 ## Caching table
 
@@ -221,10 +254,10 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
 | Table | Owner | Purpose |
 | --- | --- | --- |
 | `watchlist` | `app/db.py` | User watchlist symbols plus optional position values. |
-| `settings` | `app/db.py` | Single-user key/value settings, currently including recorded cash. |
+| `settings` | `app/db.py` | Single-user key/value settings, currently including recorded cash and the drift-alert dedupe key. |
 | `holdings` | `app/portfolio/holdings.py` | Current position rows keyed by symbol: shares and optional average cost. |
 | `targets` | `app/portfolio/plan.py` | User-owned target allocation rows keyed by symbol; weights are stored as fractions. |
-| `nav_snapshots` | `app/portfolio/snapshots.py` | One opportunistic NAV row per UTC day: securities value, cash, total NAV, cost, and unrealized P&L. |
+| `nav_snapshots` | `app/portfolio/snapshots.py` | One NAV row per UTC day from a portfolio page visit or daily job: securities value, cash, total NAV, cost, and unrealized P&L. |
 | `transactions` | `app/portfolio/transactions.py` | Optional applied ledger rows: date, side, symbol, shares, price, amount, realized P/L, note, and creation timestamp. |
 
 ## Error-handling conventions
