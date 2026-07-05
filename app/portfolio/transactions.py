@@ -189,8 +189,10 @@ def apply_transaction(txn: Transaction) -> Transaction:
 
         if clean.side == "buy":
             cash_after = cash - clean.amount
-            if cash_after < 0:
+            if cash_after < -_ZERO_TOLERANCE:
                 raise ValueError("insufficient cash — record a deposit first or adjust cash")
+            if cash_after < 0:
+                cash_after = 0.0
             if holding is None:
                 new_shares = clean.shares or 0.0
                 new_avg = clean.price
@@ -384,7 +386,6 @@ def compute_returns(valuation: PortfolioValuation) -> ReturnsSummary:
         mwr_note = "record deposits/withdrawals to compute money-weighted return"
     else:
         flows.append((datetime.now(UTC).date().isoformat(), valuation.total_with_cash))
-        flow_count = len(flows)
         mwr = xirr(flows)
         if mwr is None:
             mwr_note = "not enough cash-flow history to annualize money-weighted return"

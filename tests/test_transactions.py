@@ -195,7 +195,7 @@ def test_compute_returns_excludes_internal_trades_and_rolls_realized_by_year():
     assert summary.realized_pl_total == 200
     assert summary.realized_pl_by_year == {"2026": 200}
     assert summary.first_flow_date == "2025-01-01"
-    assert summary.flow_count == 3
+    assert summary.flow_count == 2
     assert summary.mwr_annualized is not None
 
 
