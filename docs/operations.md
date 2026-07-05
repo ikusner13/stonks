@@ -66,6 +66,19 @@ Symbols are uppercased before saving. `shares` must be a positive number;
 blank or unparseable `avg_cost` values are saved as empty. Bad data rows are
 reported with line numbers and do not block valid rows from importing.
 
+## Portfolio visuals
+
+Portfolio charts are server-rendered SVG/CSS, not client-side chart libraries.
+The allocation donut is computed from priced holdings by market value plus a
+cash slice when cash is positive; unpriced holdings are excluded and named
+under the legend. The NAV panel needs at least two stored daily snapshots before
+it can draw its filled area chart.
+
+The correlation heatmap depends on the `correlation` cache. If a cached
+correlation insight was created before matrix support was added, the narrative
+and high-pair list still render, and the heatmap appears automatically after
+that cache entry expires and recomputes (24-hour TTL).
+
 ## Cost & usage
 
 `DAILY_LLM_BUDGET_USD` is the daily cost control for personal use. The guard
