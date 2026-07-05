@@ -37,6 +37,8 @@ class Fundamentals(BaseModel):
     exchange: str | None = None
     float_shares: float | None = None
     shares_outstanding: float | None = None
+    sector: str | None = None
+    industry: str | None = None
 
 
 class NewsItem(BaseModel):

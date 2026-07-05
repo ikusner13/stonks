@@ -192,3 +192,66 @@ def test_penny_ground_truth_prepends_stance():
     gt = _ground_truth(DATA, scorecard(), PENNY)
 
     assert gt.startswith(f"PROFILE CONTEXT: {PENNY.research_stance}\n\nGROUND TRUTH")
+def test_prose_phrase_numbers_pass():
+    r = report(
+        summary=(
+            "Trades near its 52-week high, above the 200-day average; 90d volatility "
+            "is elevated and 12-1 month momentum is positive, echoing S&P 500 "
+            "strength and 6M momentum."
+        )
+    )
+    assert check_fabrication(r, DATA, scorecard()).passed
+
+
+def test_flags_ungrounded_dollar_magnitude_in_prose():
+    r = report(summary="$228B in buybacks would be material.")
+    res = check_fabrication(r, DATA, scorecard())
+    assert not res.passed
+    assert "228000000000" in res.details
+
+
+def test_decimal_magnitude_in_prose_matches_within_tolerance():
+    r = report(summary="The segment reported 1.06B users.")
+    data = DATA.model_copy(
+        update={
+            "news": [
+                NewsItem(
+                    title="Segment reports 1,058,482,000 users",
+                    url="http://x",
+                    published_at="",
+                    source="wire",
+                )
+            ]
+        }
+    )
+    assert check_fabrication(r, data, scorecard()).passed
+
+
+def test_strict_field_still_flags_bare_integer():
+    r = report(key_metrics=[KeyMetric(label="Range marker", value="52", interpretation="")])
+    res = check_fabrication(r, DATA, scorecard()).passed
+    assert not res
+
+
+def test_scorecard_text_fields_are_allowed_in_prose():
+    sc = IndicatorScorecard(
+        symbol="AAPL",
+        asof="2026-06-21T00:00:00Z",
+        indicators=[
+            Indicator(
+                key="price_vs_200d",
+                label="Price vs 200d trend",
+                value=None,
+                unit="pct",
+                signal="bullish",
+                detail="+23.4%",
+            )
+        ],
+        bullish=1,
+        bearish=0,
+        neutral=0,
+        unavailable=0,
+        data_completeness=1.0,
+    )
+    r = report(summary="Price is +23.4% versus the 200d trend.")
+    assert check_fabrication(r, DATA, sc).passed

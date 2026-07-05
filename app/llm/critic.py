@@ -64,6 +64,15 @@ def _prose_numbers(text: str) -> list[list[float]]:
 
         if text[m.end():m.end() + 2].lower() in {"-k", "-q"}:
             continue
+        after = text[m.end():]
+        if re.match(r"^[-\s]?(?:day|week|month|year)s?\b", after, re.IGNORECASE):
+            continue
+        if re.match(r"^\s?(?:d|w|wk|mo)\b", after, re.IGNORECASE):
+            continue
+        if re.match(r"^-\d+\s?(?:day|week|month|year)s?\b", after, re.IGNORECASE):
+            continue
+        if re.search(r"S&P\s*$", text[:m.start()]):
+            continue
         if is_bare_integer:
             n = int(token)
             if 0 <= n <= 10:
@@ -71,7 +80,21 @@ def _prose_numbers(text: str) -> list[list[float]]:
             if 1900 <= n <= 2100:
                 continue
 
-        values = _number_values(m)
+        if (
+            unit
+            and unit != "%"
+            and unit in _MAGNITUDE
+            and "$" not in raw
+            and "." not in token
+        ):
+            try:
+                n = float(token)
+            except ValueError:
+                values = None
+            else:
+                values = [n, n * _MAGNITUDE[unit]]
+        else:
+            values = _number_values(m)
         if values is not None:
             out.append(values)
     return out
@@ -95,6 +118,12 @@ def _collect_allowed(data: TickerData, scorecard: IndicatorScorecard) -> list[fl
     if data.macro:
         allowed.extend(data.macro.numeric_values())
     allowed.extend(scorecard.numeric_values())
+    for indicator in scorecard.indicators:
+        for field in ("key", "label", "detail"):
+            value = getattr(indicator, field, None)
+            if value:
+                for values in parse_numbers(value):
+                    allowed.extend(values)
     return allowed
 
 

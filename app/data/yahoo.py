@@ -45,6 +45,10 @@ def fetch_fundamentals(symbol: str) -> Fundamentals:
         f.float_shares = float(v)
     if (v := info.get("sharesOutstanding")) is not None:
         f.shares_outstanding = float(v)
+    if (v := info.get("sector")) is not None and isinstance(v, str):
+        f.sector = v
+    if (v := info.get("industry")) is not None and isinstance(v, str):
+        f.industry = v
     return f
 
 

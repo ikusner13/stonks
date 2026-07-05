@@ -9,8 +9,8 @@
 | `FINNHUB_API_KEY` | Optional | Preferred quote/news source over Yahoo when set. | Finnhub calls are skipped entirely (not attempted, not marked `error` — they simply produce no `sources` entry). Quote/news fall back to Yahoo. |
 | `FRED_API_KEY` | Optional | Enables macro context (fed funds, CPI YoY, 10y treasury, unemployment, GDP growth). | `sources.macro = "disabled"`; `TickerData.macro` stays `None`; the report has no macro section rather than an empty one. |
 | `SEC_IDENTITY` | Optional | Contact email SEC EDGAR requires for XBRL financials. | Falls back to a hardcoded address in `app/data/sec.py`; financials still fetch normally — set your own for anything beyond local use. |
-| `WORKHORSE_MODEL` | Optional (default `google/gemini-3.5-flash`) | Model for the research draft, discovery, and the cheap-mode critic. | Uses the default. |
-| `PREMIUM_MODEL` | Optional (default `anthropic/claude-sonnet-4.6`) | Model for the thorough-mode critic/revise chain. | Uses the default. |
+| `WORKHORSE_MODEL` | Optional (default `google/gemini-3.1-flash-lite`) | Model for the research draft, discovery, and the cheap-mode critic. | Uses the default. |
+| `PREMIUM_MODEL` | Optional (default `anthropic/claude-sonnet-5`) | Model for the thorough-mode critic/revise chain. | Uses the default. |
 | `STOCKS_DB_PATH` | Optional (default `<repo>/stocks.db`) | SQLite file for the watchlist and holdings tables. | Uses the default path. |
 | `STOCKS_CACHE_DIR` | Optional (default `<repo>/.cache`) | Root of every file cache namespace, plus `usage.jsonl`. | Uses the default path. |
 | `LOG_LEVEL` | Optional (default `INFO`) | Root logger level — **web app only**; `app/cli.py` never calls `logging.basicConfig`. | Web app defaults to `INFO`; the CLI runs under Python's default root logger (effectively `WARNING`) regardless of this var. |

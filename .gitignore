@@ -13,3 +13,4 @@ __pycache__/
 
 # SQLite watchlist store
 stocks.db
+eval_results/

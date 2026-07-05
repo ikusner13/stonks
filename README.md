@@ -113,9 +113,9 @@ never advice, never an order.
 Each research report makes several LLM calls; approximate per-report cost:
 
 - **Cheap mode**: ≈ $0.01 — one workhorse draft, one workhorse audit.
-- **Thorough mode**: ≈ $0.10–0.40 — dominated by the premium critic/revise
-  chain (premium audit, and if triggered, a premium revision plus a second
-  premium re-critique), on top of the workhorse draft.
+- **Thorough mode**: ≈ $0.06–0.30 — dominated by the premium critic/revise
+  chain; revision and re-critique now trigger only on real findings, on top of
+  the workhorse draft.
 
 Every LLM call's tokens, cache-read tokens, duration, and real USD cost (from
 OpenRouter usage accounting) are appended as one JSON line per run to

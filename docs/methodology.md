@@ -13,9 +13,9 @@ failure in one never blocks the others:
 
 | Source | Provides | Cache namespace | TTL | Notes |
 | --- | --- | --- | --- | --- |
-| Yahoo Finance (`yfinance`) | Quote (fallback), fundamentals (market cap, trailing/forward P/E, profit margin, revenue), news, price history | `data` (merged blob) | 15 min | Always attempted; the only source with no API key requirement. |
+| Yahoo Finance (`yfinance`) | Quote (fallback), fundamentals (market cap, trailing/forward P/E, profit margin, revenue, sector, industry), news, price history | `data` (merged blob) | 15 min | Always attempted; the only source with no API key requirement. |
 | Finnhub (optional) | Quote (preferred when present), company news | `data` (merged blob) | 15 min | Skipped entirely — not even attempted — when `FINNHUB_API_KEY` is unset. |
-| SEC/EDGAR (`edgartools`) | Revenue, net income, gross/operating income, total assets/liabilities, cash, total debt, shares outstanding, operating cash flow, free cash flow, fiscal period/form/filed date | `sec` | 24 h | Identity string required by EDGAR comes from `SEC_IDENTITY`, falling back to a hardcoded address. |
+| SEC/EDGAR (`edgartools`) | Revenue, net income, gross/operating income, total assets/liabilities, cash, total debt, shares outstanding, operating cash flow, free cash flow, fiscal period/form/filed date | `sec` | 24 h | Identity string required by EDGAR comes from `SEC_IDENTITY`, falling back to a hardcoded address. Field extraction prefers exact `us-gaap` tags with sanity validation for assets vs. liabilities and net income vs. revenue; wrong-magnitude bank statements motivated this. |
 | FRED (optional) | Fed funds rate, CPI YoY, 10y treasury, unemployment rate, GDP growth | `macro` | 6 h | Single global cache key (`"latest"`) — not per-symbol. Entirely skipped when `FRED_API_KEY` is unset. |
 
 **Source-status model.** Every source populates one entry in `TickerData.sources`
@@ -252,6 +252,18 @@ the main lever behind thorough mode's cost (§ Cost profile in the README)
 staying in the $0.10–0.40 range rather than scaling linearly with the number
 of calls.
 
+**Discovery pipeline** (`app/llm/discovery.py::discover_ideas`). The plan model
+selects one predefined Yahoo screen and/or thematic tickers, then code validates
+each candidate against fetched market cap, P/E, quote availability, and sector.
+When the goal names or clearly implies a sector, the prompt rule is:
+"If the goal names or clearly implies a sector, set filters.sectors using
+exactly these Yahoo sector names: Technology, Healthcare, Financial Services,
+Consumer Cyclical, Consumer Defensive, Industrials, Energy, Basic Materials,
+Real Estate, Utilities, Communication Services. Otherwise leave sectors null."
+The model's advisory sector list is not trusted by itself: Python enforces it
+against Yahoo's `sector` field, case-insensitively, and fails closed when a
+sector-filtered candidate has no sector.
+
 **Programmatic fabrication check** (`check_fabrication` in `app/llm/critic.py`).
 Runs before every audit/re-critique call, independent of the LLM.
 - **Scope** — scans report fields for numeric tokens via two different
@@ -262,10 +274,15 @@ Runs before every audit/re-critique call, independent of the LLM.
   ignores bare integers 0–10 and 4-digit years 1900–2100 (so counts and dates
   in free text aren't flagged as figures), and also skips any token
   immediately followed by `-K` or `-Q` (case-insensitive) so a "10-K"/"10-Q"
-  filing reference isn't parsed as the number 10.
+  filing reference isn't parsed as the number 10. It also skips numbers used
+  as period labels (`52-week`, `200 day`, `90d`, `52w`) or index-name prefixes
+  (`S&P 500`). Un-$'d whole-number magnitude shorthand such as `6M` is treated
+  as ambiguous and checked both as `6` and `6,000,000`; dollar amounts and
+  decimal magnitudes such as `$228B` or `1.06B` stay magnitude-only.
 - **Allowed set** — every number found in `fundamentals`, `quote`, SEC
-  financials, macro context, indicator scorecard values, and news *headlines*
-  (not article bodies, and never timestamps/URLs).
+  financials, macro context, indicator scorecard values, numbers parsed from
+  indicator keys/labels/details, and news *headlines* (not article bodies, and
+  never timestamps/URLs).
 - **The 2% rule** — a candidate number is "grounded" if its absolute magnitude
   is within 2% relative tolerance of *any* allowed number (sign is ignored;
   the check assumes direction is conveyed by surrounding words). A `%` token
