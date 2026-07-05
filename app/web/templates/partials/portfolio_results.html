@@ -33,6 +33,20 @@
     {% if result.current %}{{ metrics_card("Current allocation", result.current) }}{% endif %}
   </div>
 
+  <form hx-post="/portfolio/targets/adopt"
+        hx-target="#targets-panel"
+        hx-swap="outerHTML"
+        class="mt-4">
+    {% for sym, weight in result.optimal.weights.items() %}
+    <input type="hidden" name="symbol[]" value="{{ sym }}" />
+    <input type="hidden" name="weight[]" value="{{ weight }}" />
+    {% endfor %}
+    <button type="submit"
+      class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
+      Adopt optimizer weights as targets
+    </button>
+  </form>
+
   {% if drift %}
   <section class="mt-8">
     <h2 class="mb-1 text-sm font-semibold">Allocation drift &amp; rebalancing signals</h2>

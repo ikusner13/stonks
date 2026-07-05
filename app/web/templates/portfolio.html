@@ -107,7 +107,29 @@
     </div>
   </section>
 
-  {# ── E) Optimizer & rebalancing signals ──────────────────────────────────── #}
+  {# ── E) Target allocations & rebalance plan ──────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="mb-1 text-lg font-semibold">Target Allocations</h2>
+    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Set your own target weights. Anything below 100% becomes an implicit cash target.</p>
+    <div
+      hx-get="/portfolio/targets"
+      hx-trigger="load"
+      hx-swap="outerHTML">
+      <p class="text-sm text-[var(--sea-ink-soft)]">Loading target allocations…</p>
+    </div>
+
+    <div class="mt-6 rounded-2xl border border-[var(--line)] p-5">
+      <h3 class="mb-3 text-sm font-semibold">Rebalance plan</h3>
+      <div
+        hx-get="/portfolio/rebalance"
+        hx-trigger="load, targets-changed from:body"
+        hx-swap="outerHTML">
+        <p class="text-sm text-[var(--sea-ink-soft)]">Loading rebalance plan…</p>
+      </div>
+    </div>
+  </section>
+
+  {# ── F) Optimizer & rebalancing signals ──────────────────────────────────── #}
   <section>
     <h2 class="mb-1 text-lg font-semibold">Optimizer &amp; Rebalancing Signals</h2>
     <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Mean-variance allocation seeded from your current holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>

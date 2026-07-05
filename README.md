@@ -93,6 +93,9 @@ your saved holdings and watchlist entries are gone for good.
     together — a source of hidden concentration position weights alone miss.
   - **Allocation backtest**: CAGR/Sharpe/Sortino/volatility/max-drawdown for
     your *current* weights held constant over history, against a benchmark.
+  - **Target allocations**: save your own target weights, adopt optimizer
+    weights as targets, and generate a deterministic rebalance plan using
+    holdings plus recorded cash as the base.
   - **Optimizer**: mean-variance optimal weights (max-Sharpe or min-risk) with
     an efficient frontier, current-vs-optimal drift signals, and confidence-
     scaled position-sizing guidance for new candidates using holdings plus

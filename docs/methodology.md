@@ -231,6 +231,53 @@ These fields do **not** change `total_value` or per-holding `weight`, so the
 Health, Correlation, Allocation Backtest, and Optimizer panels keep their
 existing securities-only allocation semantics.
 
+**Target allocations & rebalance plan** (`app/portfolio/plan.py`). User target
+weights are stored as fractions (`0.25` means 25%) in the `targets` SQLite
+table. Saving targets is a full replacement: every weight must be finite and
+between `0` and `1`, and the sum of all target weights must be `<= 1.0 + 1e-6`.
+Any unallocated remainder is the implicit cash target:
+
+```
+cash_target_weight = 1 - sum(target_weight)
+```
+
+`plan_rebalance(valuation, targets)` is deterministic and does no I/O. It
+returns `None` when `valuation.total_with_cash <= 0` or when there are no
+targets. Its base value is always:
+
+```
+base_value = valuation.total_with_cash
+```
+
+For every symbol with a target row, current weight is recomputed over that base
+instead of reusing `HoldingValuation.weight`:
+
+```
+current_weight = market_value / base_value
+drift = current_weight - target_weight
+```
+
+Held symbols with no target row are listed in `untargeted` and excluded from
+trade suggestions; this distinction matters because an explicit `0%` target
+does produce a sell suggestion. If `abs(drift) <= DRIFT_THRESHOLD` (currently
+5%, imported from `decision_support.py`), the item is a hold and both deltas are
+zero. Otherwise:
+
+```
+delta_usd = round((target_weight - current_weight) * base_value, 2)
+delta_shares = round(delta_usd / price, 4)
+```
+
+Positive `delta_usd` is a buy; negative is a sell. If a targeted symbol has no
+price, `delta_usd` is still computed but `delta_shares` is `null`. The final
+cash estimate is:
+
+```
+cash_after = cash_now - sum(delta_usd)
+```
+
+Items are sorted by absolute drift descending so the largest gaps appear first.
+
 **NAV history** (`app/portfolio/snapshots.py`). Each `GET /portfolio` attempts
 to write one daily NAV snapshot for the current UTC date after live valuation
 finishes. The row key is `day` (`YYYY-MM-DD` UTC), and writes use
