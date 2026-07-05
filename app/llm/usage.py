@@ -4,7 +4,10 @@ sums it. Port of the original llm/usage.ts (AsyncLocalStorage -> contextvars).
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import random
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -13,9 +16,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, AsyncIterator, Literal
 
+from pydantic_ai.exceptions import ModelHTTPError
+
 from ..config import CACHE_DIR
 
 USAGE_LOG = CACHE_DIR / "usage.jsonl"
+logger = logging.getLogger(__name__)
+_RETRYABLE_STATUS_CODES = {429, 502, 503, 529}
 
 CallSite = Literal[
     "research", "critique", "revise", "re-critique", "discover-plan", "discover-rationale"
@@ -85,6 +92,21 @@ def record(call_site: str, result: Any, duration_ms: int) -> None:
     )
 
 
+def _settings_for_attempt(model_settings: Any, attempt: int, max_attempts: int) -> Any:
+    if attempt != max_attempts or not isinstance(model_settings, dict):
+        return model_settings
+
+    provider = model_settings.get("openrouter_provider")
+    if not isinstance(provider, dict) or provider.get("allow_fallbacks") is not False:
+        return model_settings
+
+    copied = dict(model_settings)
+    copied_provider = dict(provider)
+    copied_provider.pop("allow_fallbacks", None)
+    copied["openrouter_provider"] = copied_provider
+    return copied
+
+
 async def run_tracked(
     call_site: str, agent: Any, user_prompt: Any, model_settings: Any, model: Any = None
 ) -> Any:
@@ -92,13 +114,29 @@ async def run_tracked(
 
     ``model`` optionally overrides the agent's bound model (the critic chain
     swaps premium/workhorse per call)."""
-    kwargs: dict[str, Any] = {"model_settings": model_settings}
-    if model is not None:
-        kwargs["model"] = model
-    start = time.monotonic()
-    result = await agent.run(user_prompt, **kwargs)
-    record(call_site, result, int((time.monotonic() - start) * 1000))
-    return result
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        kwargs: dict[str, Any] = {
+            "model_settings": _settings_for_attempt(model_settings, attempt, max_attempts)
+        }
+        if model is not None:
+            kwargs["model"] = model
+        start = time.monotonic()
+        try:
+            result = await agent.run(user_prompt, **kwargs)
+        except ModelHTTPError as exc:
+            if exc.status_code not in _RETRYABLE_STATUS_CODES or attempt == max_attempts:
+                raise
+            logger.warning(
+                "LLM call failed with retryable HTTP status",
+                extra={"call_site": call_site, "status": exc.status_code, "attempt": attempt},
+            )
+            await asyncio.sleep(2 * attempt + random.uniform(0, 1))
+            continue
+        record(call_site, result, int((time.monotonic() - start) * 1000))
+        return result
+
+    raise RuntimeError("unreachable")
 
 
 def annotate_run(**fields: Any) -> None:
