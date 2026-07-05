@@ -24,6 +24,10 @@ class _Filters(BaseModel):
         default=None, description="Minimum market cap in absolute dollars, or null."
     )
     max_pe: float | None = Field(default=None, description="Maximum trailing P/E ratio, or null.")
+    sectors: list[str] | None = Field(
+        default=None,
+        description="Target Yahoo sectors when the goal clearly implies them, otherwise null.",
+    )
 
 
 class _ScreenPlan(BaseModel):
@@ -65,6 +69,7 @@ PLAN_SYSTEM = """You are an equity-idea-discovery assistant. Given an investment
 ABSOLUTE RULES:
 - NEVER fabricate financial figures (market cap, P/E, price). Every number is independently fetched and validated downstream; invented numbers are useless.
 - For "filters", only extract numeric thresholds the user actually expressed in the goal; convert market cap to absolute dollars (e.g. "$100B" -> 100e9). Use null when not specified.
+- If the goal names or clearly implies a sector, set filters.sectors using exactly these Yahoo sector names: Technology, Healthcare, Financial Services, Consumer Cyclical, Consumer Defensive, Industrials, Energy, Basic Materials, Real Estate, Utilities, Communication Services. Otherwise leave sectors null.
 - Prefer a predefined "strategy" when one cleanly matches; use theme_candidates for goals no screen captures.
 - Treat the goal as the user's private research intent."""
 
@@ -98,13 +103,23 @@ def _get_rationale_agent():
     return _rationale_agent
 
 
-def _passes(filters: _Filters, market_cap: float | None, pe: float | None) -> bool:
-    if filters.max_market_cap is not None and (market_cap is None or market_cap > filters.max_market_cap):
+def _passes(
+    filters: _Filters, market_cap: float | None, pe: float | None, sector: str | None
+) -> bool:
+    if filters.max_market_cap is not None and (
+        market_cap is None or market_cap > filters.max_market_cap
+    ):
         return False
-    if filters.min_market_cap is not None and (market_cap is None or market_cap < filters.min_market_cap):
+    if filters.min_market_cap is not None and (
+        market_cap is None or market_cap < filters.min_market_cap
+    ):
         return False
     if filters.max_pe is not None and (pe is None or pe > filters.max_pe):
         return False
+    if filters.sectors is not None:
+        sector_names = {s.lower() for s in filters.sectors}
+        if sector is None or sector.lower() not in sector_names:
+            return False
     return True
 
 
@@ -132,9 +147,10 @@ async def discover_ideas(goal: str, limit: int = 8) -> DiscoveryResult:
             return None
         market_cap = data.fundamentals.market_cap
         pe = data.fundamentals.pe_ratio
+        sector = data.fundamentals.sector
         if data.quote is None and market_cap is None:  # likely delisted/hallucinated
             return None
-        if not _passes(plan.filters, market_cap, pe):
+        if not _passes(plan.filters, market_cap, pe, sector):
             return None
         return {
             "symbol": symbol,

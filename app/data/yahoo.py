@@ -39,6 +39,10 @@ def fetch_fundamentals(symbol: str) -> Fundamentals:
         f.profit_margin = float(v)
     if (v := info.get("totalRevenue")) is not None:
         f.revenue = float(v)
+    if (v := info.get("sector")) is not None and isinstance(v, str):
+        f.sector = v
+    if (v := info.get("industry")) is not None and isinstance(v, str):
+        f.industry = v
     return f
 
 

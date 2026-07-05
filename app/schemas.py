@@ -34,6 +34,8 @@ class Fundamentals(BaseModel):
     forward_pe: float | None = None
     profit_margin: float | None = None
     revenue: float | None = None
+    sector: str | None = None
+    industry: str | None = None
 
 
 class NewsItem(BaseModel):
