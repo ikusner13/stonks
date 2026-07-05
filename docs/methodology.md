@@ -49,7 +49,7 @@ in this codebase, and they behave differently:
   when that TTL expires or the caller passes `fresh=True`.
 
 This status surfaces directly in the UI as chips (ok/empty/error/disabled) next
-to each source, and feeds the confidence caps described in §5.
+to each source, and feeds the confidence caps described in §6.
 
 ## 2. Indicator engine
 
@@ -220,10 +220,16 @@ computed by code as `shares * price` rounded to cents with `Decimal` and
 `ROUND_HALF_UP`; submitted buy/sell amount is ignored. Cash-flow amount is the
 submitted amount rounded the same way.
 
-**Buy application.** A buy first checks recorded cash. If
-`cash_after = get_cash() - amount` is `< 0`, it raises
+**Buy application.** A buy first checks recorded cash:
+
+```
+cash_after = get_cash() - amount
+```
+
+If `cash_after < -1e-9`, it raises
 `ValueError("insufficient cash — record a deposit first or adjust cash")` before
-writing anything. Otherwise cash becomes `cash_after`. Holdings use the
+writing anything. If `cash_after` is negative only within that tolerance, it is
+clamped to `0.0`; otherwise cash becomes `cash_after`. Holdings use the
 single-row average-cost method:
 
 `new_shares = old_shares + shares`
@@ -235,6 +241,11 @@ When there is no old holding row, `avg_cost = price`. When an old row exists and
 
 When the old row's `avg_cost is None`, the new average stays `None`; unknown
 basis plus known basis remains unknown.
+
+**Deposits and withdrawals.** A deposit increases recorded cash by its rounded
+amount. A withdrawal requires enough recorded cash, raises
+`ValueError("withdrawal exceeds cash")` when `cash - amount < 0`, and otherwise
+sets cash to `cash - amount`.
 
 **Sell application.** A sell requires an existing holding and rejects
 `shares > held_shares + 1e-9`. Cash increases by `amount`. The holding's
@@ -464,9 +475,10 @@ drift = current_weight - target_weight
 
 Held symbols with no target row are listed in `untargeted` and excluded from
 trade suggestions; this distinction matters because an explicit `0%` target
-does produce a sell suggestion. If `abs(drift) <= DRIFT_THRESHOLD` (currently
-5%, imported from `decision_support.py`), the item is a hold and both deltas are
-zero. Otherwise:
+does produce a sell suggestion. If
+`abs(drift) <= DRIFT_THRESHOLD + 1e-12` (with `DRIFT_THRESHOLD` currently 5%,
+imported from `decision_support.py`), the item is a hold and `delta_usd = 0.0`.
+Otherwise:
 
 ```
 delta_usd = round((target_weight - current_weight) * base_value, 2)
@@ -475,8 +487,10 @@ after_weight = (market_value + delta_usd) / base_value
 ```
 
 Positive `delta_usd` is a buy; negative is a sell. Hold items keep
-`after_weight = current_weight`. If a targeted symbol has no price, `delta_usd`
-is still computed but `delta_shares` is `null`. The final cash estimate is:
+`after_weight = current_weight`. When `price` is present and positive,
+`delta_shares = round(delta_usd / price, 4)`, including `0.0` for holds; when
+price is missing or non-positive, `delta_shares` is `null`. The final cash
+estimate is:
 
 ```
 cash_after = cash_now - sum(delta_usd)
@@ -524,6 +538,9 @@ Items are sorted by `buy_usd` descending, and leftover cash is:
 leftover_cash = round(contribution - sum(buy_usd), 2)
 ```
 
+When `sum(deficit) <= 0`, the function returns an empty item list and leaves the
+entire rounded contribution as `leftover_cash`.
+
 **NAV history** (`app/portfolio/snapshots.py`). Each `GET /portfolio` attempts
 to write one daily NAV snapshot for the current UTC date after live valuation
 finishes, and the in-process daily job attempts the same write at the configured
@@ -545,6 +562,31 @@ bottom edge, follows the polyline, closes to the last point's bottom edge, and
 the dotted baseline is the y-coordinate of the first snapshot value. First/last
 date labels and min/max dollar labels come from the first, last, min, and max
 points respectively.
+
+**Daily drift alerts** (`app/jobs.py`). `run_daily_jobs()` first calls
+`value_holdings()` and `record_snapshot(valuation)`. If either raises, it logs
+`"daily valuation/snapshot job failed"` and returns
+`{"snapshot": False, "alert": ""}` without attempting an alert. Alerts are then
+skipped unless both `DRIFT_ALERT_ENABLED` is true and `DISCORD_WEBHOOK_URL` is
+non-empty.
+
+When alerts are enabled, the job builds
+`plan_rebalance(valuation, list_targets())`, keeps only items where
+`action != "hold"`, and skips when that actionable list is empty. Dedupe is the
+SQLite setting `last_drift_alert`; the stored value is parsed by splitting on
+the first colon and interpreting the suffix as a comma-separated symbol set.
+If that stored symbol set equals the current actionable symbol set, the alert is
+skipped regardless of the stored date. Otherwise the new setting value is:
+
+```
+today = datetime.now(UTC).date().isoformat()
+dedupe_value = f"{today}:{','.join(sorted(current_symbols))}"
+```
+
+The Discord POST is `json={"content": message}` with a five-second timeout. The
+dedupe setting is written only after `response.raise_for_status()` succeeds;
+webhook errors are logged as `"daily drift alert failed"` and leave the previous
+dedupe setting unchanged.
 
 **Allocation backtest** (`app/portfolio/performance.py::compute_performance`).
 

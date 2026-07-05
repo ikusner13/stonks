@@ -1,7 +1,7 @@
 """Allocation backtest: current live weights replayed over historical returns.
 
 Answers "what would this allocation have returned held constant since X" —
-not the account's actual realized return (see docs/methodology.md §5).
+not the account's actual realized return (see docs/methodology.md §7).
 """
 
 from __future__ import annotations

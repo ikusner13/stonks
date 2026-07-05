@@ -101,9 +101,10 @@ the snapshot rule is unchanged: skip partially-priced or zero-value valuations.
 
 Discord drift alerts are deterministic rebalance-plan messages. They run only
 when `DRIFT_ALERT_ENABLED=1` and `DISCORD_WEBHOOK_URL` is non-empty, and they
-dedupe on the current actionable symbol set so repeated daily checks do not
-spam the same drift. A new symbol crossing into the actionable set sends a new
-alert. Webhook post failures are logged and do not update the dedupe key.
+dedupe on the current actionable symbol set, not on the calendar date. Repeated
+daily checks skip while the actionable set is unchanged; a new symbol entering
+or leaving that set sends a new alert. Webhook post failures are logged and do
+not update the dedupe key.
 
 To configure Discord, create an incoming webhook for the target channel and
 copy its URL into `.env` as `DISCORD_WEBHOOK_URL`. Discord's UI walkthrough is:

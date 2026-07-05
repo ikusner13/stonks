@@ -94,6 +94,9 @@ your saved holdings, transaction ledger, and watchlist entries are gone for good
     of what the audit finds. Cheaper and faster; the critic is the same model
     that wrote the report, so it's a weaker check than thorough mode's
     independent premium audit.
+  - **Position sizing**: when the ticker is viewed against the current
+    portfolio, guidance uses holdings plus recorded cash as the investable base
+    and treats any existing position weight as already-consumed headroom.
 - **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
   any research report, and used to prefill the portfolio page.
 - **Portfolio** — holdings valuation, CSV holdings import, dry-powder tracking,
@@ -114,9 +117,7 @@ your saved holdings, transaction ledger, and watchlist entries are gone for good
     holdings plus recorded cash as the base, including a buy-only contribution
     what-if preview for new cash.
   - **Optimizer**: mean-variance optimal weights (max-Sharpe or min-risk) with
-    an SVG efficient frontier, current-vs-optimal drift signals, and
-    confidence-scaled position-sizing guidance for new candidates using
-    holdings plus recorded cash as the investable base.
+    an SVG efficient frontier and current-vs-optimal drift signals.
   - **Transactions**: deposits, withdrawals, buys, sells, and CSV import apply
     to recorded cash and holdings; the ledger reports realized P/L and
     money-weighted return. Deleting a row removes the record only, not its

@@ -66,7 +66,8 @@ LLM dependency and never writes the drift-alert dedupe key when a webhook post
 fails.
 
 **`app/cache.py`** — The one dependency-light file-cache primitive
-(`read_cache`/`write_cache`/`with_cache`) every namespace in §3 is built on.
+(`read_cache`/`write_cache`/`with_cache`) every namespace in the caching table
+is built on.
 No external dependency (no Redis/SQLite) — one JSON file per key under
 `.cache/<namespace>/`. Concurrent in-process misses for the same namespace/key
 are coalesced with a per-key async lock, so only the first caller runs the
@@ -103,8 +104,9 @@ forward references those imports satisfy.
    - **Cache check** — namespace `report`, key `SYMBOL:YYYY-MM-DD:mode`, TTL
      24h. A hit returns immediately with **zero** network or LLM calls
      (`annotate_run(cached=True, ...)` is the only side effect).
-   - On a miss: `fetch_ticker_data` (its own `data`-namespace cache, §3) fans
-     out to Yahoo/Finnhub/SEC/FRED concurrently via `asyncio.gather`.
+   - On a miss: `fetch_ticker_data` (its own `data`-namespace cache; see the
+     caching table) fans out to Yahoo/Finnhub/SEC/FRED concurrently via
+     `asyncio.gather`.
    - If there's neither a quote nor a market cap, `InsufficientDataError`
      raises here and propagates **uncached** — the next request retries fresh.
    - `compute_scorecard` (its own `scorecard`-namespace cache) fetches 420
@@ -160,7 +162,7 @@ UTC day's NAV without a page visit:
   `hx-get="/portfolio/correlation" hx-trigger="load"` fires immediately after
   page load. The route recomputes live valuation to order symbols by portfolio
   weight descending, calls `compute_correlation_insight` (its own
-  `correlation`-cache, §3), and swaps in
+  `correlation` cache described in the caching table), and swaps in
   `partials/portfolio_correlation.html`, which renders the narrative, high
   pairs, and a matrix heatmap when the cached insight includes one.
 - **C) NAV history** — lazy-loaded on `hx-trigger="load"`:
@@ -175,7 +177,10 @@ UTC day's NAV without a page visit:
 - **D) Allocation backtest** — also lazy-loaded on `hx-trigger="load"`:
   `GET /portfolio/performance` recomputes `value_holdings()` again (independent
   of the page-load call, same 15-minute price-cache caveat) and calls
-  `compute_performance` with the resulting weights.
+  `compute_performance` with the resulting weights. The rendered partial links
+  to `GET /portfolio/tearsheet`, which recomputes those live weights and
+  returns the `quantstats_lumi` HTML tearsheet, or a short HTML message when
+  there are no holdings, no priced weights, or insufficient history.
 - **E) Target allocations & rebalance** — `GET /portfolio/targets` lazy-loads
   the editable target-weight form, including held symbols that do not yet have
   target rows and the implicit cash target. `POST /portfolio/targets` fully
@@ -274,8 +279,9 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
 ## Error-handling conventions
 
 - **Error partials over 500s.** Most web routes that do real work (research,
-  discover, portfolio import, targets, rebalance, NAV, correlation, performance,
-  and tearsheet) catch expected or generic failures and return a rendered
+  discover, portfolio import, transaction read/add/delete, targets, rebalance,
+  NAV, correlation, performance, and tearsheet) catch expected or generic
+  failures and return a rendered
   `partials/error.html` fragment — HTMX swaps this into the panel's target, so
   the rest of the page stays intact. Generic failures in those routes log the
   full traceback via `logger.exception`; validation-style failures return a
