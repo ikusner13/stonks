@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 Signal = Literal["bullish", "bearish", "neutral", "unavailable"]
-Unit = Literal["pct", "ratio", "days"]
+Unit = Literal["pct", "ratio", "days", "usd", "count"]
 
 
 class Indicator(BaseModel):
@@ -22,6 +22,7 @@ class Indicator(BaseModel):
 class IndicatorScorecard(BaseModel):
     symbol: str
     asof: str
+    profile: str = "largecap"
     indicators: list[Indicator]
     bullish: int
     bearish: int

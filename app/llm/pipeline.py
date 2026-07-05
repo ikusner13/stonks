@@ -11,6 +11,7 @@ from ..cache import with_cache
 from ..data import fetch_ticker_data
 from ..indicators.confidence import clamp_confidence, compute_confidence
 from ..indicators.engine import compute_scorecard
+from ..profiles.largecap import LARGECAP
 from ..schemas import ResearchResult
 from .critic import ReviewMode, research_ticker_reviewed
 from .usage import annotate_run
@@ -46,7 +47,7 @@ async def research_ticker_cached(
         ticker = await fetch_ticker_data(sym, fresh=fresh)
         if ticker.quote is None and ticker.fundamentals.market_cap is None:
             raise InsufficientDataError(sym, ticker.sources)
-        scorecard = await compute_scorecard(sym, ticker, fresh=fresh)
+        scorecard = await compute_scorecard(sym, ticker, profile=LARGECAP, fresh=fresh)
         assessment = compute_confidence(ticker, scorecard)
         report, critique, revised = await research_ticker_reviewed(sym, ticker, scorecard, mode)
         report.confidence = clamp_confidence(
