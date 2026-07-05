@@ -1,6 +1,6 @@
 import pytest
 
-from app import config
+from app import config, db
 from app.portfolio import holdings as holdings_mod
 from app.portfolio.holdings import (
     Holding,
@@ -15,6 +15,7 @@ from app.schemas import Quote, TickerData
 @pytest.fixture(autouse=True)
 def _tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "stocks.db")
+    db.init_db()
     holdings_mod.init_holdings_db()
 
 
@@ -72,6 +73,9 @@ async def test_value_holdings_aggregates_only_consistently_priced_set(
     valuation = await value_holdings()
 
     assert valuation.total_value == 250
+    assert valuation.cash == 0
+    assert valuation.total_with_cash == 250
+    assert valuation.cash_pct == 0
     assert valuation.total_cost == 150
     assert valuation.total_unrealized_pl == 100
     assert valuation.total_unrealized_pl_pct == pytest.approx(100 / 150)
@@ -96,3 +100,48 @@ async def test_value_holdings_empty_portfolio(monkeypatch: pytest.MonkeyPatch):
     assert valuation.total_unrealized_pl == 0
     assert valuation.total_unrealized_pl_pct == 0
     assert valuation.unpriced_symbols == []
+    assert valuation.cash == 0
+    assert valuation.total_with_cash == 0
+    assert valuation.cash_pct == 0
+
+
+async def test_value_holdings_includes_cash_without_changing_security_weights(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    db.set_cash(50)
+    monkeypatch.setattr(
+        holdings_mod,
+        "list_holdings",
+        lambda: [
+            Holding(symbol="AAA", shares=10, avg_cost=5),
+            Holding(symbol="BBB", shares=5, avg_cost=20),
+        ],
+    )
+
+    async def fetch_ticker_data(symbol: str) -> TickerData:
+        if symbol == "AAA":
+            return _ticker(symbol, 10)
+        return _ticker(symbol, 30)
+
+    monkeypatch.setattr(holdings_mod, "fetch_ticker_data", fetch_ticker_data)
+
+    valuation = await value_holdings()
+
+    assert valuation.total_value == 250
+    assert valuation.cash == 50
+    assert valuation.total_with_cash == 300
+    assert valuation.cash_pct == pytest.approx(50 / 300)
+    assert [h.weight for h in valuation.holdings] == [pytest.approx(0.4), pytest.approx(0.6)]
+
+
+async def test_value_holdings_cash_only_portfolio(monkeypatch: pytest.MonkeyPatch):
+    db.set_cash(500)
+    monkeypatch.setattr(holdings_mod, "list_holdings", lambda: [])
+
+    valuation = await value_holdings()
+
+    assert valuation.holdings == []
+    assert valuation.total_value == 0
+    assert valuation.cash == 500
+    assert valuation.total_with_cash == 500
+    assert valuation.cash_pct == 1.0

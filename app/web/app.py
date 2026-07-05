@@ -182,7 +182,7 @@ async def research_report(request: Request, symbol: str, mode: str = "thorough",
         )
         current_weight = next((h.weight for h in valuation.holdings if h.symbol == sym), None)
         sizing = suggest_position_size(
-            valuation.total_value, effective, symbol=sym, current_weight=current_weight
+            valuation.total_with_cash, effective, symbol=sym, current_weight=current_weight
         )
         return templates.TemplateResponse(
             request,
@@ -298,6 +298,18 @@ async def portfolio_holdings_add(
 @app.post("/portfolio/holdings/remove/{symbol}", response_class=HTMLResponse)
 async def portfolio_holdings_remove(request: Request, symbol: str):
     remove_holding(symbol.upper())
+    valuation = await value_holdings()
+    return templates.TemplateResponse(
+        request, "partials/holdings_table.html", {"valuation": valuation}
+    )
+
+
+@app.post("/portfolio/cash", response_class=HTMLResponse)
+async def portfolio_cash_set(request: Request, cash: str = Form("")):
+    try:
+        db.set_cash(float(cash))
+    except (TypeError, ValueError):
+        pass
     valuation = await value_holdings()
     return templates.TemplateResponse(
         request, "partials/holdings_table.html", {"valuation": valuation}

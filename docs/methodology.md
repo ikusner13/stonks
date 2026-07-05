@@ -191,8 +191,10 @@ in `research_ticker_cached`. The model can only ever pull confidence down from
 what the data supports — never up.
 
 **Position sizing** (`app/portfolio/decision_support.py::suggest_position_size`)
-maps the final confidence to a starting-size band, as a fraction of total
-portfolio value:
+maps the final confidence to a starting-size band, as a fraction of investable
+portfolio value. The web research page passes holdings value plus recorded cash
+(`total_with_cash`) as that base, so dry powder counts when estimating a new
+position's dollar range:
 
 | Confidence | Band |
 | --- | --- |
@@ -200,8 +202,8 @@ portfolio value:
 | medium | 3.0–6.0% |
 | low | 1.5–3.0% |
 
-If the symbol is already held, the existing weight is treated as consumed
-headroom within the band: the suggested dollar range narrows to
+If the symbol is already held, the existing securities-only weight is treated
+as consumed headroom within the band: the suggested dollar range narrows to
 `band − current_weight` (floored at 0), and if the current weight already
 meets or exceeds the band's high end, the guidance switches to "already at
 band — adding would increase concentration."
@@ -221,6 +223,13 @@ and does not block the others from getting one. These per-holding weights
 are what the Health and Allocation Backtest panels consume; Correlation
 instead takes the raw holdings symbol list and fetches its own independent
 return history, without reference to weight at all.
+
+Cash is stored separately in SQLite settings as a single non-negative dollar
+amount. `value_holdings` exposes it as `cash`, `total_with_cash`
+(`total_value + cash`), and `cash_pct` (`cash / total_with_cash` when positive).
+These fields do **not** change `total_value` or per-holding `weight`, so the
+Health, Correlation, Allocation Backtest, and Optimizer panels keep their
+existing securities-only allocation semantics.
 
 **Allocation backtest** (`app/portfolio/performance.py::compute_performance`).
 

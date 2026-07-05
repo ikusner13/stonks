@@ -3,6 +3,24 @@
 <div id="holdings-table">
   {% if not valuation.holdings %}
   <p class="py-4 text-sm text-[var(--sea-ink-soft)]">No holdings yet. Add a position below.</p>
+  <div class="max-w-md overflow-x-auto">
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-[var(--line)]">
+        <tr>
+          <td class="py-2 font-semibold">Cash</td>
+          <td class="py-2 text-right tabular-nums">${{ valuation.cash | fmt_num }}</td>
+        </tr>
+        <tr>
+          <td class="py-2 font-semibold">Total (incl. cash)</td>
+          <td class="py-2 text-right tabular-nums">${{ valuation.total_with_cash | fmt_num }}</td>
+        </tr>
+        <tr>
+          <td class="py-2 font-semibold">Dry powder</td>
+          <td class="py-2 text-right tabular-nums">{{ valuation.cash_pct | pct }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
   {% else %}
   {% if valuation.unpriced_symbols %}
   <p class="mb-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm">
@@ -69,7 +87,7 @@
       </tbody>
       <tfoot>
         <tr class="border-t border-[var(--line)] font-semibold">
-          <td class="pt-3" colspan="4">Total</td>
+          <td class="pt-3" colspan="4">Securities total</td>
           <td class="pt-3 text-right tabular-nums">${{ valuation.total_value | fmt_num }}</td>
           {% set tot_pos = valuation.total_unrealized_pl >= 0 %}
           <td class="pt-3 text-right tabular-nums {% if tot_pos %}text-emerald-500{% else %}text-red-500{% endif %}">
@@ -79,6 +97,21 @@
             {{ '+' if tot_pos else '' }}{{ valuation.total_unrealized_pl_pct | pct }}
           </td>
           <td colspan="2"></td>
+        </tr>
+        <tr class="font-semibold">
+          <td class="pt-3" colspan="4">Cash</td>
+          <td class="pt-3 text-right tabular-nums">${{ valuation.cash | fmt_num }}</td>
+          <td colspan="4"></td>
+        </tr>
+        <tr class="font-semibold">
+          <td class="pt-3" colspan="4">Total (incl. cash)</td>
+          <td class="pt-3 text-right tabular-nums">${{ valuation.total_with_cash | fmt_num }}</td>
+          <td colspan="4"></td>
+        </tr>
+        <tr class="font-semibold">
+          <td class="pt-3" colspan="4">Dry powder</td>
+          <td class="pt-3 text-right tabular-nums">{{ valuation.cash_pct | pct }}</td>
+          <td colspan="4"></td>
         </tr>
       </tfoot>
     </table>

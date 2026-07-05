@@ -12,6 +12,26 @@
     {# Live valuation table — refreshed after each add/remove #}
     {% include "partials/holdings_table.html" %}
 
+    {# Cash balance form #}
+    <form hx-post="/portfolio/cash"
+          hx-target="#holdings-table"
+          hx-swap="outerHTML"
+          hx-indicator="#holdings-spin"
+          class="mt-5">
+      <div class="flex flex-wrap items-end gap-3">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-[var(--sea-ink-soft)]">Cash</label>
+          <input name="cash" type="number" min="0" step="0.01" inputmode="decimal"
+            value="{{ '%.2f' | format(valuation.cash) }}"
+            class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+        </div>
+        <button type="submit"
+          class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
+          Save Cash
+        </button>
+      </div>
+    </form>
+
     {# Add position form #}
     <form hx-post="/portfolio/holdings"
           hx-target="#holdings-table"

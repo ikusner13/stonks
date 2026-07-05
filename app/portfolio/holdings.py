@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
+from .. import db
 from ..data import fetch_ticker_data
 from ..db import connect
 
@@ -40,6 +41,9 @@ class PortfolioValuation(BaseModel):
     total_unrealized_pl_pct: float
     asof: str
     unpriced_symbols: list[str] = Field(default_factory=list)
+    cash: float = 0.0
+    total_with_cash: float = 0.0
+    cash_pct: float = 0.0
 
 
 def init_holdings_db() -> None:
@@ -92,8 +96,10 @@ async def value_holdings() -> PortfolioValuation:
     unpriced symbols are listed but contribute nothing to the totals."""
     holdings = list_holdings()
     asof = datetime.now(UTC).isoformat()
+    cash = db.get_cash()
 
     if not holdings:
+        total_with_cash = cash
         return PortfolioValuation(
             holdings=[],
             total_value=0.0,
@@ -102,6 +108,9 @@ async def value_holdings() -> PortfolioValuation:
             total_unrealized_pl_pct=0.0,
             asof=asof,
             unpriced_symbols=[],
+            cash=cash,
+            total_with_cash=total_with_cash,
+            cash_pct=(cash / total_with_cash) if total_with_cash > 0 else 0.0,
         )
 
     async def fetch_price(symbol: str) -> float | None:
@@ -162,6 +171,7 @@ async def value_holdings() -> PortfolioValuation:
             v.weight = v.market_value / total_value
 
     total_unrealized_pl_pct = (total_unrealized_pl / total_cost) if total_cost != 0 else 0.0
+    total_with_cash = total_value + cash
 
     return PortfolioValuation(
         holdings=valuations,
@@ -171,4 +181,7 @@ async def value_holdings() -> PortfolioValuation:
         total_unrealized_pl_pct=total_unrealized_pl_pct,
         asof=asof,
         unpriced_symbols=unpriced_symbols,
+        cash=cash,
+        total_with_cash=total_with_cash,
+        cash_pct=(cash / total_with_cash) if total_with_cash > 0 else 0.0,
     )

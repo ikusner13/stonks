@@ -4,9 +4,9 @@ An AI-aided equity research and portfolio decision-support tool. It fetches
 real market data, computes a deterministic indicator scorecard in code, and
 uses an LLM to turn that ground truth into a readable research report — with a
 skeptical critic pass and a programmatic fabrication check to catch invented
-numbers. A portfolio page adds mean-variance optimization, a historical
-allocation backtest, and plain-language decision-support signals (concentration,
-correlation, drift, position sizing).
+numbers. A portfolio page adds holdings and cash tracking, mean-variance
+optimization, a historical allocation backtest, and plain-language
+decision-support signals (concentration, correlation, drift, position sizing).
 
 **What this is not**: it does not place orders, hold custody of money, or give
 investment advice. Every number is either fetched from a real source or
@@ -86,7 +86,8 @@ your saved holdings and watchlist entries are gone for good.
     independent premium audit.
 - **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
   any research report, and used to prefill the portfolio page.
-- **Portfolio** — holdings valuation, plus four decision-support panels:
+- **Portfolio** — holdings valuation and dry-powder tracking, plus four
+  decision-support panels:
   - **Health**: concentration by top-1/3/5 holding weight, in plain language.
   - **Correlation**: pairwise return correlation flags holdings that move
     together — a source of hidden concentration position weights alone miss.
@@ -94,7 +95,8 @@ your saved holdings and watchlist entries are gone for good.
     your *current* weights held constant over history, against a benchmark.
   - **Optimizer**: mean-variance optimal weights (max-Sharpe or min-risk) with
     an efficient frontier, current-vs-optimal drift signals, and confidence-
-    scaled position-sizing guidance for new candidates.
+    scaled position-sizing guidance for new candidates using holdings plus
+    recorded cash as the investable base.
 
 All of the above is deterministic and grounded in fetched or computed data —
 never advice, never an order.
@@ -132,7 +134,7 @@ app/
   portfolio/   skfolio optimizer, holdings valuation, performance backtest, decision_support
   web/         FastAPI app, Jinja2 templates, HTMX partials, static assets
   cache.py     file-based read-through KV (data/sec/macro/report/scorecard/correlation caches)
-  db.py        SQLite watchlist store
+  db.py        SQLite watchlist/settings store
   schemas.py   Pydantic models / LLM structured-output contracts
   cli.py       Typer CLI
 docs/

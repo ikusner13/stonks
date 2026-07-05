@@ -1,9 +1,9 @@
+import pytest
+
 from app import config, db
 
 
-def test_connect_uses_monkeypatched_db_path_and_enables_wal(
-    monkeypatch, tmp_path
-):
+def test_connect_uses_monkeypatched_db_path_and_enables_wal(monkeypatch, tmp_path):
     db_path = tmp_path / "stocks.db"
     monkeypatch.setattr(config, "DB_PATH", db_path)
 
@@ -21,3 +21,33 @@ def test_connect_uses_monkeypatched_db_path_and_enables_wal(
 
     assert db_path.exists()
     assert row["value"] == "ok"
+
+
+def test_cash_defaults_and_round_trips(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "stocks.db")
+    db.init_db()
+
+    assert db.get_cash() == 0.0
+
+    db.set_cash(1234.56)
+
+    assert db.get_cash() == 1234.56
+    assert db.get_setting("cash") == "1234.56"
+
+
+def test_set_cash_rejects_negative_amount(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "stocks.db")
+    db.init_db()
+
+    with pytest.raises(ValueError):
+        db.set_cash(-0.01)
+
+    assert db.get_cash() == 0.0
+
+
+def test_get_cash_tolerates_bad_setting(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "stocks.db")
+    db.init_db()
+    db.set_setting("cash", "not-a-number")
+
+    assert db.get_cash() == 0.0
