@@ -6,9 +6,13 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from csv import Error as CsvError
+from csv import reader as csv_reader
+from io import StringIO
+from math import isfinite
 from pathlib import Path
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -69,6 +73,9 @@ _CONF_ORDER = {"low": 0, "medium": 1, "high": 2}
 LLM_CONFIGURED = bool(OPENROUTER_API_KEY)
 if not LLM_CONFIGURED:
     logger.warning("OPENROUTER_API_KEY not set — research and discovery will fail")
+
+MAX_IMPORT_BYTES = 100 * 1024
+MAX_IMPORT_ROWS = 500
 
 
 # --- Jinja filters ----------------------------------------------------------
@@ -332,6 +339,86 @@ async def portfolio_cash_set(request: Request, cash: str = Form("")):
     valuation = await value_holdings()
     return templates.TemplateResponse(
         request, "partials/holdings_table.html", {"valuation": valuation}
+    )
+
+
+@app.post("/portfolio/import", response_class=HTMLResponse)
+async def portfolio_import(request: Request, file: UploadFile = File(...)):
+    raw = await file.read()
+    if len(raw) > MAX_IMPORT_BYTES:
+        return _error_partial(request, "CSV import failed: file must be 100 KB or smaller.")
+
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return _error_partial(request, "CSV import failed: file must be UTF-8 encoded.")
+
+    try:
+        rows = list(csv_reader(StringIO(text)))
+    except CsvError:
+        return _error_partial(request, "CSV import failed: unable to parse CSV.")
+
+    if not rows:
+        return _error_partial(request, "CSV import failed: header row is required.")
+
+    header = [col.strip().lower() for col in rows[0]]
+    column_map = {name: index for index, name in enumerate(header) if name}
+    if "symbol" not in column_map or "shares" not in column_map:
+        return _error_partial(
+            request, "CSV import failed: header must include symbol and shares columns."
+        )
+
+    data_rows = rows[1:]
+    if len(data_rows) > MAX_IMPORT_ROWS:
+        return _error_partial(request, "CSV import failed: maximum 500 data rows allowed.")
+
+    imported = 0
+    skipped: list[str] = []
+    symbol_index = column_map["symbol"]
+    shares_index = column_map["shares"]
+    avg_cost_index = column_map.get("avg_cost")
+
+    for line_number, row in enumerate(data_rows, start=2):
+        if not any(cell.strip() for cell in row):
+            continue
+
+        symbol = row[symbol_index].strip().upper() if symbol_index < len(row) else ""
+        if not symbol:
+            skipped.append(f"line {line_number}: missing symbol")
+            continue
+
+        raw_shares = row[shares_index].strip() if shares_index < len(row) else ""
+        try:
+            shares = float(raw_shares)
+        except ValueError:
+            skipped.append(f"line {line_number}: bad shares '{raw_shares}'")
+            continue
+        if shares <= 0 or not isfinite(shares):
+            skipped.append(f"line {line_number}: shares must be > 0")
+            continue
+
+        avg_cost: float | None = None
+        if avg_cost_index is not None and avg_cost_index < len(row):
+            raw_avg_cost = row[avg_cost_index].strip()
+            if raw_avg_cost:
+                try:
+                    avg_cost = float(raw_avg_cost)
+                except ValueError:
+                    avg_cost = None
+                if avg_cost is not None and not isfinite(avg_cost):
+                    avg_cost = None
+
+        upsert_holding(symbol, shares, avg_cost)
+        imported += 1
+
+    valuation = await value_holdings()
+    return templates.TemplateResponse(
+        request,
+        "partials/holdings_table.html",
+        {
+            "valuation": valuation,
+            "import_summary": {"imported": imported, "skipped": skipped},
+        },
     )
 
 

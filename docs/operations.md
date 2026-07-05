@@ -49,6 +49,23 @@ for research, re-pays the LLM cost for anything requested that trading day).
 LOG_LEVEL=DEBUG uv run uvicorn app.web.app:app --reload --port 8000
 ```
 
+## Portfolio CSV import
+
+The portfolio page accepts holdings CSV uploads up to 100 KB and 500 data rows.
+The header row is required; `symbol` and `shares` are required columns,
+`avg_cost` is optional, and extra columns are ignored. Headers are
+case-insensitive and UTF-8 BOMs are tolerated.
+
+```csv
+symbol,shares,avg_cost
+AAPL,10,150.25
+MSFT,4,
+```
+
+Symbols are uppercased before saving. `shares` must be a positive number;
+blank or unparseable `avg_cost` values are saved as empty. Bad data rows are
+reported with line numbers and do not block valid rows from importing.
+
 ## Cost & usage
 
 `DAILY_LLM_BUDGET_USD` is the daily cost control for personal use. The guard

@@ -33,34 +33,53 @@
     </form>
 
     {# Add position form #}
-    <form hx-post="/portfolio/holdings"
-          hx-target="#holdings-table"
-          hx-swap="outerHTML"
-          hx-indicator="#holdings-spin"
-          class="mt-5"
-          id="add-holding-form">
-      <div class="flex flex-wrap items-end gap-3">
-        <div class="flex flex-col gap-1">
-          <label class="text-xs text-[var(--sea-ink-soft)]">Symbol</label>
-          <input name="symbol" placeholder="AAPL" required
-            class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm uppercase" />
+    <div class="mt-5 flex flex-wrap items-end gap-5">
+      <form hx-post="/portfolio/holdings"
+            hx-target="#holdings-table"
+            hx-swap="outerHTML"
+            hx-indicator="#holdings-spin"
+            id="add-holding-form">
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-[var(--sea-ink-soft)]">Symbol</label>
+            <input name="symbol" placeholder="AAPL" required
+              class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm uppercase" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-[var(--sea-ink-soft)]">Shares</label>
+            <input name="shares" placeholder="10" inputmode="decimal" required
+              class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-[var(--sea-ink-soft)]">Avg Cost (optional)</label>
+            <input name="avg_cost" placeholder="150.00" inputmode="decimal"
+              class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+          </div>
+          <button type="submit"
+            class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
+            Add / Update
+          </button>
         </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-xs text-[var(--sea-ink-soft)]">Shares</label>
-          <input name="shares" placeholder="10" inputmode="decimal" required
-            class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+      </form>
+
+      <form hx-post="/portfolio/import"
+            hx-encoding="multipart/form-data"
+            hx-target="#holdings-table"
+            hx-swap="outerHTML"
+            hx-indicator="#holdings-spin">
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-[var(--sea-ink-soft)]">Import CSV</label>
+            <input name="file" type="file" accept=".csv,text/csv" required
+              class="max-w-64 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+          </div>
+          <button type="submit"
+            class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
+            Upload
+          </button>
         </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-xs text-[var(--sea-ink-soft)]">Avg Cost (optional)</label>
-          <input name="avg_cost" placeholder="150.00" inputmode="decimal"
-            class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-        </div>
-        <button type="submit"
-          class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
-          Add / Update
-        </button>
-      </div>
-    </form>
+      </form>
+    </div>
     <p id="holdings-spin" class="htmx-indicator mt-3 text-sm text-[var(--sea-ink-soft)]">Fetching prices…</p>
   </section>
 

@@ -1,6 +1,19 @@
 {# Renders the holdings table with live valuation.
    Context: valuation = PortfolioValuation (may have empty holdings list) #}
 <div id="holdings-table">
+  {% if import_summary %}
+  <div class="mb-3 rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-3 text-sm">
+    <p class="font-semibold">Imported {{ import_summary.imported }} holding{{ '' if import_summary.imported == 1 else 's' }}.</p>
+    {% if import_summary.skipped %}
+    <p class="mt-1 text-[var(--sea-ink-soft)]">Skipped {{ import_summary.skipped | length }} row{{ '' if import_summary.skipped | length == 1 else 's' }}:</p>
+    <ul class="mt-1 list-disc pl-5 text-[var(--sea-ink-soft)]">
+      {% for item in import_summary.skipped %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endif %}
   {% if not valuation.holdings %}
   <p class="py-4 text-sm text-[var(--sea-ink-soft)]">No holdings yet. Add a position below.</p>
   <div class="max-w-md overflow-x-auto">

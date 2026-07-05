@@ -86,7 +86,7 @@ your saved holdings and watchlist entries are gone for good.
     independent premium audit.
 - **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
   any research report, and used to prefill the portfolio page.
-- **Portfolio** — holdings valuation and dry-powder tracking, plus four
+- **Portfolio** — holdings valuation, CSV holdings import, and dry-powder tracking, plus four
   decision-support panels:
   - **Health**: concentration by top-1/3/5 holding weight, in plain language.
   - **Correlation**: pairwise return correlation flags holdings that move
