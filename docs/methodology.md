@@ -205,7 +205,72 @@ whose valuation price is `< 5.0` from the mean-variance symbol list and surfaces
 If fewer than two symbols remain after exclusion, the optimizer is skipped with
 the same message. Correlation and the allocation backtest keep all symbols.
 
-## 4. LLM research pipeline
+## 4. Transactions, realized P/L, and money-weighted return
+
+The transaction ledger is an optional journal that applies changes to the
+authoritative `holdings` table and recorded cash setting. It is not a replay
+source: deleting a transaction deletes only that ledger row and does not reverse
+cash or holdings effects.
+
+Allowed sides are `buy`, `sell`, `deposit`, and `withdraw`. Dates must be ISO
+calendar dates (`YYYY-MM-DD`) and cannot be in the future relative to UTC today.
+Symbols are uppercased. Buy/sell rows require `symbol`, `shares > 0`, and
+`price > 0`; deposit/withdraw rows require `amount > 0`. Buy/sell `amount` is
+computed by code as `shares * price` rounded to cents with `Decimal` and
+`ROUND_HALF_UP`; submitted buy/sell amount is ignored. Cash-flow amount is the
+submitted amount rounded the same way.
+
+**Buy application.** A buy first checks recorded cash. If
+`cash_after = get_cash() - amount` is `< 0`, it raises
+`ValueError("insufficient cash — record a deposit first or adjust cash")` before
+writing anything. Otherwise cash becomes `cash_after`. Holdings use the
+single-row average-cost method:
+
+`new_shares = old_shares + shares`
+
+When there is no old holding row, `avg_cost = price`. When an old row exists and
+`old_avg_cost is not None`, the new basis is exactly:
+
+`new_avg = (old_shares * old_avg_cost + shares * price) / new_shares`
+
+When the old row's `avg_cost is None`, the new average stays `None`; unknown
+basis plus known basis remains unknown.
+
+**Sell application.** A sell requires an existing holding and rejects
+`shares > held_shares + 1e-9`. Cash increases by `amount`. The holding's
+`avg_cost` is unchanged while shares remain. If the remaining share count is
+`< 1e-9`, the holding row is deleted. Realized P/L is stored only for sells:
+
+`realized_pl = (price - avg_cost) * shares`
+
+That result is rounded to cents with `Decimal` and `ROUND_HALF_UP`. If
+`avg_cost is None`, realized P/L is stored as `None`.
+
+**Money-weighted return.** `compute_returns()` uses only external cash flows:
+deposits, withdrawals, and a terminal portfolio value. Buys and sells are
+internal transfers because cash is inside the portfolio boundary, so they never
+enter the MWR flow list. Flow signs are:
+
+| Flow | XIRR amount |
+| --- | ---: |
+| Deposit | negative |
+| Withdrawal | positive |
+| Terminal value (`valuation.total_with_cash`) dated UTC today | positive |
+
+`xirr()` annualizes by bisection over rates from `-0.9999` to `10.0`, with
+maximum 200 iterations and a `1e-7` stopping tolerance on either absolute NPV
+or rate interval. The net present value function is exactly:
+
+`NPV(r) = sum(amount / (1 + r) ** (days_from_first / 365.25))`
+
+`xirr()` returns `None` when there are fewer than two flows, all flows have the
+same sign, the NPV at the two bounds does not change sign, or the span from the
+first to last flow is less than 14 days. `compute_returns()` also returns MWR
+`None` when no deposits/withdrawals have been recorded or when the current
+valuation has unpriced symbols, because the terminal portfolio value is not
+complete.
+
+## 5. LLM research pipeline
 
 **Grounding contract.** Every prompt in the pipeline states the same absolute
 rules, verbatim from `app/llm/research.py` and `app/llm/critic.py`:
@@ -300,7 +365,7 @@ Runs before every audit/re-critique call, independent of the LLM.
   of 12.1) happens to fall within 2% of it. It catches invented magnitudes; it
   cannot catch a real number wired to the wrong fact.
 
-## 5. Confidence and sizing
+## 6. Confidence and sizing
 
 `app/indicators/confidence.py::compute_confidence` builds a completeness score
 by summing the active profile's weights (§3). The presence rules are stable
@@ -343,7 +408,7 @@ as consumed headroom within the band: the suggested dollar range narrows to
 meets or exceeds the band's high end, the guidance switches to "already at
 band — adding would increase concentration."
 
-## 6. Portfolio math
+## 7. Portfolio math
 
 **Valuation aggregation** (`app/portfolio/holdings.py::value_holdings`).
 `total_value`, `total_cost`, and `total_unrealized_pl` are summed **only**
@@ -488,7 +553,7 @@ returns; a pair is "high" at `≥ 0.80`. Portfolio-level `level`:
 `avg_correlation ≥ 0.40` or any high pair exists; else `low`. Cached per
 symbol-set + lookback + trading day (namespace `correlation`, 24 h TTL).
 
-## 7. Known limitations
+## 8. Known limitations
 
 - **No outcome tracking.** Nothing in this codebase records what a report
   predicted against what actually happened later — there is no calibration
@@ -500,7 +565,7 @@ symbol-set + lookback + trading day (namespace `correlation`, 24 h TTL).
   records, not broker-sourced transaction history. A day without a portfolio
   page view has no point, and a partially-priced valuation is deliberately
   skipped rather than stored.
-- **Fabrication check is magnitude-only**, not semantic (see §4) — it can
+- **Fabrication check is magnitude-only**, not semantic (see §5) — it can
   match a fabricated number to an unrelated real figure that happens to be
   numerically close.
 - **SEC comparative periods are not guaranteed to be exactly annual.**

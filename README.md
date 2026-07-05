@@ -7,6 +7,9 @@ skeptical critic pass and a programmatic fabrication check to catch invented
 numbers. A portfolio page adds holdings and cash tracking, mean-variance
 optimization, a historical allocation backtest, and plain-language
 decision-support signals (concentration, correlation, drift, position sizing).
+An optional transaction ledger can apply deposits, withdrawals, buys, and sells
+to the authoritative portfolio state and compute realized P/L plus
+money-weighted return.
 
 **What this is not**: it does not place orders, hold custody of money, or give
 investment advice. Every number is either fetched from a real source or
@@ -61,10 +64,10 @@ Docker:
 docker build -t stocks . && docker run -p 8000:8000 --env-file .env -v stocks-data:/data stocks
 ```
 
-The `-v stocks-data:/data` volume holds the SQLite DB (watchlist, holdings) and
-all file caches. **Without it, every container restart starts with an empty
+The `-v stocks-data:/data` volume holds the SQLite DB (watchlist, holdings,
+transactions) and all file caches. **Without it, every container restart starts with an empty
 watchlist and portfolio** — nothing is lost that a re-fetch can't recover, but
-your saved holdings and watchlist entries are gone for good.
+your saved holdings, transaction ledger, and watchlist entries are gone for good.
 
 ## Feature tour
 
@@ -90,8 +93,8 @@ your saved holdings and watchlist entries are gone for good.
     independent premium audit.
 - **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
   any research report, and used to prefill the portfolio page.
-- **Portfolio** — holdings valuation, CSV holdings import, and dry-powder tracking, plus five
-  decision-support panels:
+- **Portfolio** — holdings valuation, CSV holdings import, dry-powder tracking,
+  and an optional transactions ledger, plus decision-support panels:
   - **Health**: concentration by top-1/3/5 holding weight, in plain language.
   - **Correlation**: pairwise return correlation flags holdings that move
     together — a source of hidden concentration position weights alone miss.
@@ -104,6 +107,10 @@ your saved holdings and watchlist entries are gone for good.
     an efficient frontier, current-vs-optimal drift signals, and confidence-
     scaled position-sizing guidance for new candidates using holdings plus
     recorded cash as the investable base.
+  - **Transactions**: deposits, withdrawals, buys, sells, and CSV import apply
+    to recorded cash and holdings; the ledger reports realized P/L and
+    money-weighted return. Deleting a row removes the record only, not its
+    applied effect.
 
 All of the above is deterministic and grounded in fetched or computed data —
 never advice, never an order.
@@ -138,7 +145,7 @@ app/
   data/        market data (yfinance quotes/fundamentals/news, Finnhub, SEC/EDGAR, FRED, screener)
   indicators/  deterministic indicator scorecard + confidence assessment
   llm/         Pydantic AI pipelines: research, critic, discovery, usage tracking
-  portfolio/   holdings valuation, NAV snapshots, targets/rebalance, optimizer, backtest, decision_support
+  portfolio/   holdings valuation, transactions/MWR, NAV snapshots, targets/rebalance, optimizer, backtest, decision_support
   web/         FastAPI app, Jinja2 templates, HTMX partials, static assets
   cache.py     file-based read-through KV (data/sec/macro/report/scorecard/correlation caches)
   db.py        SQLite watchlist/settings store + shared connection helper
