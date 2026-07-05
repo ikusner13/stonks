@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _IDENTITY_SET = False
 _SEC_TTL_MS = 24 * 60 * 60 * 1000  # 24 h
+_PERIOD_COL_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 
 def _ensure_identity() -> None:
@@ -56,14 +57,80 @@ class SecFinancials(BaseModel):
 
 
 def _get_concept(df: pd.DataFrame, concept: str) -> float | None:
-    rows = df[(df["standard_concept"] == concept) & (~df["dimension"].astype(bool))]
+    rows = df[(df["standard_concept"] == concept) & _dimensionless_mask(df)]
     if rows.empty:
         return None
-    val_cols = [c for c in df.columns if re.match(r"\d{4}", c)]
-    if not val_cols:
+    return _first_newest_value(df, rows)
+
+
+def _period_columns(df: pd.DataFrame) -> list[str]:
+    return sorted(
+        [c for c in df.columns if _PERIOD_COL_RE.match(str(c))],
+        key=lambda c: str(c)[:10],
+        reverse=True,
+    )
+
+
+def _dimensionless_mask(df: pd.DataFrame) -> pd.Series:
+    if "dimension" not in df.columns:
+        return pd.Series(True, index=df.index)
+    return ~df["dimension"].fillna("").astype(bool)
+
+
+def _first_newest_value(df: pd.DataFrame, rows: pd.DataFrame) -> float | None:
+    period_cols = _period_columns(df)
+    if not period_cols:
         return None
-    v = rows[val_cols[0]].iloc[0]
-    return None if pd.isna(v) else float(v)
+    for v in rows[period_cols[0]]:
+        if not pd.isna(v):
+            return float(v)
+    return None
+
+
+def _get_by_tags(df: pd.DataFrame, tags: list[str]) -> float | None:
+    for tag in tags:
+        rows = df[(df["concept"] == tag) & _dimensionless_mask(df)]
+        if rows.empty:
+            continue
+        value = _first_newest_value(df, rows)
+        if value is not None:
+            return value
+    return None
+
+
+def _get_tag_or_concept(df: pd.DataFrame, tags: list[str], concept: str) -> float | None:
+    value = _get_by_tags(df, tags)
+    return value if value is not None else _get_concept(df, concept)
+
+
+def _sanity_check(result: dict[str, Any]) -> dict[str, Any]:
+    clean = dict(result)
+    total_assets = clean.get("total_assets")
+    total_liabilities = clean.get("total_liabilities")
+    if (
+        total_assets is not None
+        and total_liabilities is not None
+        and total_assets < total_liabilities
+    ):
+        logger.warning(
+            "SEC sanity check dropped assets/liabilities: assets below liabilities"
+        )
+        clean["total_assets"] = None
+        clean["total_liabilities"] = None
+
+    revenue = clean.get("revenue")
+    net_income = clean.get("net_income")
+    if (
+        revenue is not None
+        and net_income is not None
+        and revenue > 0
+        and net_income > 0
+        and net_income > revenue
+    ):
+        logger.warning("SEC sanity check dropped revenue/net income: net income above revenue")
+        clean["revenue"] = None
+        clean["net_income"] = None
+    return clean
 
 
 def _fetch_blocking(symbol: str) -> dict[str, Any]:
@@ -82,18 +149,44 @@ def _fetch_blocking(symbol: str) -> dict[str, Any]:
 
     try:
         df_inc = fin.income_statement().to_dataframe()
-        result["revenue"] = _get_concept(df_inc, "Revenue")
-        result["gross_profit"] = _get_concept(df_inc, "GrossProfit")
-        result["operating_income"] = _get_concept(df_inc, "OperatingIncomeLoss")
-        result["net_income"] = _get_concept(df_inc, "NetIncome")
+        result["revenue"] = _get_tag_or_concept(
+            df_inc,
+            [
+                "us-gaap_RevenueFromContractWithCustomerExcludingAssessedTax",
+                "us-gaap_Revenues",
+                "us-gaap_RevenuesNetOfInterestExpense",
+                "us-gaap_SalesRevenueNet",
+            ],
+            "Revenue",
+        )
+        result["gross_profit"] = _get_tag_or_concept(
+            df_inc, ["us-gaap_GrossProfit"], "GrossProfit"
+        )
+        result["operating_income"] = _get_tag_or_concept(
+            df_inc, ["us-gaap_OperatingIncomeLoss"], "OperatingIncomeLoss"
+        )
+        result["net_income"] = _get_tag_or_concept(
+            df_inc, ["us-gaap_NetIncomeLoss"], "NetIncome"
+        )
     except Exception:
         logger.warning("SEC income statement fetch failed for %s", symbol, exc_info=True)
 
     try:
         df_bs = fin.balance_sheet().to_dataframe()
-        result["total_assets"] = _get_concept(df_bs, "Assets")
-        result["total_liabilities"] = _get_concept(df_bs, "Liabilities")
-        result["cash_and_equivalents"] = _get_concept(df_bs, "CashAndMarketableSecurities")
+        result["total_assets"] = _get_tag_or_concept(
+            df_bs, ["us-gaap_Assets"], "Assets"
+        )
+        result["total_liabilities"] = _get_tag_or_concept(
+            df_bs, ["us-gaap_Liabilities"], "Liabilities"
+        )
+        result["cash_and_equivalents"] = _get_tag_or_concept(
+            df_bs,
+            [
+                "us-gaap_CashAndCashEquivalentsAtCarryingValue",
+                "us-gaap_CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            ],
+            "CashAndMarketableSecurities",
+        )
         result["shares_outstanding"] = _get_concept(df_bs, "SharesYearEnd")
         # total_debt = long-term + short-term
         ltd = _get_concept(df_bs, "LongTermDebt")
@@ -105,9 +198,18 @@ def _fetch_blocking(symbol: str) -> dict[str, Any]:
 
     try:
         df_cf = fin.cashflow_statement().to_dataframe()
-        ocf = _get_concept(df_cf, "NetCashFromOperatingActivities")
+        ocf = _get_tag_or_concept(
+            df_cf,
+            [
+                "us-gaap_NetCashProvidedByUsedInOperatingActivities",
+                "us-gaap_NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+            ],
+            "NetCashFromOperatingActivities",
+        )
         result["operating_cash_flow"] = ocf
-        capex = _get_concept(df_cf, "CapitalExpenses")
+        capex = _get_tag_or_concept(
+            df_cf, ["us-gaap_PaymentsToAcquirePropertyPlantAndEquipment"], "CapitalExpenses"
+        )
         if ocf is not None and capex is not None:
             # capex is stored as negative in XBRL; FCF = OCF - |capex|
             result["free_cash_flow"] = ocf - abs(capex)
@@ -123,7 +225,7 @@ def _fetch_blocking(symbol: str) -> dict[str, Any]:
     except Exception:
         logger.warning("SEC entity info fetch failed for %s", symbol, exc_info=True)
 
-    return result
+    return _sanity_check(result)
 
 
 async def fetch_financials(symbol: str, *, fresh: bool = False) -> SecFinancials | None:
