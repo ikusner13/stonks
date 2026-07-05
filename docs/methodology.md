@@ -231,6 +231,17 @@ These fields do **not** change `total_value` or per-holding `weight`, so the
 Health, Correlation, Allocation Backtest, and Optimizer panels keep their
 existing securities-only allocation semantics.
 
+**NAV history** (`app/portfolio/snapshots.py`). Each `GET /portfolio` attempts
+to write one daily NAV snapshot for the current UTC date after live valuation
+finishes. The row key is `day` (`YYYY-MM-DD` UTC), and writes use
+`INSERT OR REPLACE`, so the last successful portfolio page view of the UTC day
+wins. A snapshot is skipped when any holding is unpriced (`unpriced_symbols`
+non-empty) or when `total_with_cash <= 0`; the app never persists a
+partially-priced or zero-value NAV. Days when the app is never opened have no
+point. The NAV series is actual account history over recorded page views
+(`total_with_cash`, securities plus cash), unlike the constant-weight
+Allocation Backtest below.
+
 **Allocation backtest** (`app/portfolio/performance.py::compute_performance`).
 
 > **This is not the account's realized return.** It replays *today's* live
@@ -294,9 +305,10 @@ symbol-set + lookback + trading day (namespace `correlation`, 24 h TTL).
 - **No lot-level cost basis.** `upsert_holding` overwrites `shares`/`avg_cost`
   on conflict; adding to a position at a new price replaces the average
   rather than tracking individual tax lots.
-- **No cash tracking.** Portfolio weights are equity-only — there's no
-  concept of un-invested cash, so a portfolio with a large uninvested cash
-  balance shows equity-only weights that don't reflect true concentration.
+- **Sparse NAV history by design.** NAV snapshots are opportunistic page-view
+  records, not broker-sourced transaction history. A day without a portfolio
+  page view has no point, and a partially-priced valuation is deliberately
+  skipped rather than stored.
 - **Fabrication check is magnitude-only**, not semantic (see §3) — it can
   match a fabricated number to an unrelated real figure that happens to be
   numerically close.

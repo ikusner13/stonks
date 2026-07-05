@@ -35,6 +35,8 @@ line to `.cache/usage.jsonl` when the `with_run` context exits. Imports
 
 **`app/portfolio/`** — Everything that isn't single-ticker research.
 `holdings.py` owns the SQLite-backed positions table and live valuation.
+`snapshots.py` owns the SQLite-backed daily NAV history and the server-computed
+series model used by the equity-curve partial.
 `history.py` is the shared price-history fetch + cleaning helper
 (`fetch_price_history`, `drop_short_history`) used by both `performance.py`
 (the allocation backtest, via `quantstats_lumi`) and `optimize.py` (mean-variance
@@ -119,14 +121,16 @@ forward references those imports satisfy.
    `fresh` values — it is not forced to `fresh=1`; a request made without
    `fresh` retries the same, cache-eligible way.
 
-### (b) The portfolio page and its four HTMX panels
+### (b) The portfolio page and its HTMX panels
 
 `GET /portfolio` renders the page shell synchronously: `value_holdings()`
 (always recomputed — though each holding's price is subject to the 15-minute
-`data` cache, so this isn't a guaranteed-fresh network fetch), `assess_portfolio_health`
+`data` cache, so this isn't a guaranteed-fresh network fetch), opportunistically
+records a daily NAV snapshot from that valuation, `assess_portfolio_health`
 computed inline from that valuation, and the holdings table — all present in
-the initial HTML. Three of the four panels below are then loaded
-independently:
+the initial HTML. Snapshot writes are wrapped in `try/except` with a warning log,
+so history storage can never break page rendering. Three panels below are then
+loaded independently:
 
 - **A) Holdings** — rendered inline on page load (no HTMX round-trip needed
   for the initial view). Add/remove (`POST /portfolio/holdings`,
@@ -137,11 +141,16 @@ independently:
   `hx-get="/portfolio/correlation" hx-trigger="load"` fires immediately after
   page load, calling `compute_correlation_insight` (its own `correlation`-cache,
   §3) and swapping in `partials/portfolio_correlation.html`.
-- **C) Allocation backtest** — also lazy-loaded on `hx-trigger="load"`:
+- **C) NAV history** — lazy-loaded on `hx-trigger="load"`:
+  `GET /portfolio/nav` reads the last 365 daily snapshots from SQLite, computes
+  deltas against the previous and first snapshots, and renders an SVG polyline
+  string for a `600x120` viewBox in `partials/nav_history.html`. With fewer than
+  two points, no polyline is produced.
+- **D) Allocation backtest** — also lazy-loaded on `hx-trigger="load"`:
   `GET /portfolio/performance` recomputes `value_holdings()` again (independent
   of the page-load call, same 15-minute price-cache caveat) and calls
   `compute_performance` with the resulting weights.
-- **D) Optimizer & drift** — the only panel that isn't `hx-trigger="load"`; it
+- **E) Optimizer & drift** — the only panel that isn't `hx-trigger="load"`; it
   fires on form submit (`POST /portfolio/optimize`), seeding from the submitted
   rows or, if the form is empty, from current holdings. `optimize()` runs in a
   worker thread (`anyio.to_thread.run_sync`, since `skfolio`/`numpy` there are
@@ -175,6 +184,18 @@ same lock, and exceptions still propagate without writing a cache entry.
 `fresh=True` (the CLI's `--fresh`, or `?fresh=1` on the research route) bypasses
 the read side of `with_cache` unconditionally — it still writes the fresh
 result back afterward, refreshing the TTL.
+
+## SQLite storage table
+
+All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
+`app/db.py::connect()`.
+
+| Table | Owner | Purpose |
+| --- | --- | --- |
+| `watchlist` | `app/db.py` | User watchlist symbols plus optional position values. |
+| `settings` | `app/db.py` | Single-user key/value settings, currently including recorded cash. |
+| `holdings` | `app/portfolio/holdings.py` | Current position rows keyed by symbol: shares and optional average cost. |
+| `nav_snapshots` | `app/portfolio/snapshots.py` | One opportunistic NAV row per UTC day: securities value, cash, total NAV, cost, and unrealized P&L. |
 
 ## Error-handling conventions
 

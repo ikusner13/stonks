@@ -38,6 +38,12 @@ from ..portfolio.holdings import (
 )
 from ..portfolio.optimize import Holding, NoDataError, OptimizeRequest, optimize
 from ..portfolio.performance import compute_performance, tearsheet_html
+from ..portfolio.snapshots import (
+    build_nav_series,
+    init_snapshots_db,
+    list_snapshots,
+    record_snapshot,
+)
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -108,6 +114,7 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 db.init_db()  # idempotent; ensures the watchlist table exists before first request
 init_holdings_db()  # idempotent; ensures the holdings table exists before first request
+init_snapshots_db()  # idempotent; ensures the NAV history table exists before first request
 
 
 # --- Discover ---------------------------------------------------------------
@@ -239,6 +246,10 @@ def watchlist_remove(symbol: str):
 @app.get("/portfolio", response_class=HTMLResponse)
 async def portfolio_page(request: Request):
     valuation = await value_holdings()
+    try:
+        record_snapshot(valuation)
+    except Exception:
+        logger.warning("nav snapshot write failed", exc_info=True)
     optimizer_rows = [
         {"symbol": v.symbol, "value": round(v.market_value, 2) if v.market_value is not None else None}
         for v in valuation.holdings
@@ -314,6 +325,22 @@ async def portfolio_cash_set(request: Request, cash: str = Form("")):
     return templates.TemplateResponse(
         request, "partials/holdings_table.html", {"valuation": valuation}
     )
+
+
+@app.get("/portfolio/nav", response_class=HTMLResponse)
+async def portfolio_nav(request: Request):
+    try:
+        series = build_nav_series(list_snapshots())
+        return templates.TemplateResponse(
+            request,
+            "partials/nav_history.html",
+            {"series": series, "recent": list(reversed(series.points[-10:]))},
+        )
+    except Exception:
+        logger.exception("portfolio nav history failed")
+        return _error_partial(
+            request, "Portfolio NAV history failed — see server logs.", "/portfolio/nav"
+        )
 
 
 @app.get("/portfolio/correlation", response_class=HTMLResponse)

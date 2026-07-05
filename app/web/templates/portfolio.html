@@ -81,7 +81,20 @@
     <p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ ds_disclaimer }}</p>
   </section>
 
-  {# ── C) Performance ───────────────────────────────────────────────────────── #}
+  {# ── C) NAV History ───────────────────────────────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="mb-4 text-lg font-semibold">NAV history</h2>
+    <div class="rounded-2xl border border-[var(--line)] p-5">
+      <div
+        hx-get="/portfolio/nav"
+        hx-trigger="load"
+        hx-swap="innerHTML">
+        <p class="text-sm text-[var(--sea-ink-soft)]">Loading NAV history…</p>
+      </div>
+    </div>
+  </section>
+
+  {# ── D) Performance ───────────────────────────────────────────────────────── #}
   <section class="mb-10">
     <h2 class="mb-4 text-lg font-semibold">Allocation backtest</h2>
     <div class="rounded-2xl border border-[var(--line)] p-5">
@@ -94,7 +107,7 @@
     </div>
   </section>
 
-  {# ── D) Optimizer & rebalancing signals ──────────────────────────────────── #}
+  {# ── E) Optimizer & rebalancing signals ──────────────────────────────────── #}
   <section>
     <h2 class="mb-1 text-lg font-semibold">Optimizer &amp; Rebalancing Signals</h2>
     <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Mean-variance allocation seeded from your current holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>
