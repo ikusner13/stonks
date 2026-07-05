@@ -3,9 +3,11 @@ optimizer (formerly an HTTP sidecar) as a direct in-process call."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from csv import Error as CsvError
 from csv import reader as csv_reader
 from io import StringIO
@@ -18,14 +20,14 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import db
+from .. import config, db
 from ..config import OPENROUTER_API_KEY
+from ..jobs import daily_loop
 from ..llm.budget import BudgetExceededError
 from ..llm.discovery import discover_ideas
 from ..llm.pipeline import InsufficientDataError, research_ticker_cached
 from ..llm.usage import format_event, with_run
 from ..profiles import PENNY_PRICE_MAX, PROFILES
-from ..schemas import Confidence
 from ..portfolio.decision_support import (
     DISCLAIMER as DS_DISCLAIMER,
 )
@@ -47,6 +49,7 @@ from ..portfolio.plan import (
     Target,
     init_targets_db,
     list_targets,
+    plan_contribution,
     plan_rebalance,
     set_targets,
 )
@@ -57,6 +60,7 @@ from ..portfolio.snapshots import (
     list_snapshots,
     record_snapshot,
 )
+from ..schemas import Confidence
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -161,7 +165,24 @@ templates.env.filters["fmt_cap"] = _fmt_cap
 templates.env.filters["pct"] = _pct
 templates.env.filters["indicator_value"] = _fmt_indicator_value
 
-app = FastAPI(title="Stock Research")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    task: asyncio.Task | None = None
+    if config.DAILY_JOB_HOUR_UTC >= 0:
+        task = asyncio.create_task(daily_loop())
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
+app = FastAPI(title="Stock Research", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 db.init_db()  # idempotent; ensures the watchlist table exists before first request
@@ -618,6 +639,33 @@ async def portfolio_rebalance(request: Request):
         return _error_partial(
             request, "Rebalance plan failed — see server logs.", "/portfolio/rebalance"
         )
+
+
+@app.post("/portfolio/whatif", response_class=HTMLResponse)
+async def portfolio_whatif(request: Request, amount: str = Form("")):
+    try:
+        contribution = float(amount)
+    except (TypeError, ValueError):
+        return _error_partial(request, "Contribution amount must be a positive number.")
+    if contribution <= 0 or not isfinite(contribution):
+        return _error_partial(request, "Contribution amount must be a positive number.")
+
+    try:
+        targets = list_targets()
+        valuation = await value_holdings()
+        plan = plan_contribution(valuation, targets, contribution)
+        return templates.TemplateResponse(
+            request,
+            "partials/whatif.html",
+            {
+                "plan": plan,
+                "has_targets": bool(targets),
+                "ds_disclaimer": DS_DISCLAIMER,
+            },
+        )
+    except Exception:
+        logger.exception("portfolio what-if failed")
+        return _error_partial(request, "Contribution preview failed — see server logs.")
 
 
 @app.get("/portfolio/nav", response_class=HTMLResponse)

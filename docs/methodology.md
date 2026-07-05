@@ -404,11 +404,12 @@ zero. Otherwise:
 ```
 delta_usd = round((target_weight - current_weight) * base_value, 2)
 delta_shares = round(delta_usd / price, 4)
+after_weight = (market_value + delta_usd) / base_value
 ```
 
-Positive `delta_usd` is a buy; negative is a sell. If a targeted symbol has no
-price, `delta_usd` is still computed but `delta_shares` is `null`. The final
-cash estimate is:
+Positive `delta_usd` is a buy; negative is a sell. Hold items keep
+`after_weight = current_weight`. If a targeted symbol has no price, `delta_usd`
+is still computed but `delta_shares` is `null`. The final cash estimate is:
 
 ```
 cash_after = cash_now - sum(delta_usd)
@@ -416,16 +417,56 @@ cash_after = cash_now - sum(delta_usd)
 
 Items are sorted by absolute drift descending so the largest gaps appear first.
 
+**Contribution-only plan** (`plan_contribution`). A what-if contribution preview
+is deterministic and buys only with the new contribution amount; it never sells
+existing positions. It returns `None` when `contribution <= 0`, when
+`valuation.total_with_cash <= 0`, or when there are no targets. The post-cash
+base is:
+
+```
+base_after = valuation.total_with_cash + round(contribution, 2)
+```
+
+For each target symbol:
+
+```
+current_weight = current_value / base_after
+deficit = max(0, target_weight * base_after - current_value)
+```
+
+If `sum(deficit) <= contribution`, each buy is its full deficit rounded to
+cents. Otherwise each buy is the proportional share of the contribution,
+rounded to cents:
+
+```
+buy_usd = round(contribution * deficit / sum(deficit), 2)
+```
+
+If rounding would put the total above the contribution, the largest buy is
+reduced by the overage. Buys below `$1.00` are dropped. `buy_shares` is
+`round(buy_usd / price, 4)` when price is positive, else `null`. After-trade
+weight is:
+
+```
+after_weight = (current_value + buy_usd) / base_after
+```
+
+Items are sorted by `buy_usd` descending, and leftover cash is:
+
+```
+leftover_cash = round(contribution - sum(buy_usd), 2)
+```
+
 **NAV history** (`app/portfolio/snapshots.py`). Each `GET /portfolio` attempts
 to write one daily NAV snapshot for the current UTC date after live valuation
-finishes. The row key is `day` (`YYYY-MM-DD` UTC), and writes use
-`INSERT OR REPLACE`, so the last successful portfolio page view of the UTC day
-wins. A snapshot is skipped when any holding is unpriced (`unpriced_symbols`
-non-empty) or when `total_with_cash <= 0`; the app never persists a
-partially-priced or zero-value NAV. Days when the app is never opened have no
-point. The NAV series is actual account history over recorded page views
-(`total_with_cash`, securities plus cash), unlike the constant-weight
-Allocation Backtest below.
+finishes, and the in-process daily job attempts the same write at the configured
+UTC hour. The row key is `day` (`YYYY-MM-DD` UTC), and writes use
+`INSERT OR REPLACE`, so the latest successful page visit or daily job for the
+UTC day wins. A snapshot is skipped when any holding is unpriced
+(`unpriced_symbols` non-empty) or when `total_with_cash <= 0`; the app never
+persists a partially-priced or zero-value NAV. The NAV series is actual account
+history over recorded snapshots (`total_with_cash`, securities plus cash),
+unlike the constant-weight Allocation Backtest below.
 
 **Allocation backtest** (`app/portfolio/performance.py::compute_performance`).
 
@@ -496,10 +537,10 @@ symbol-set + lookback + trading day (namespace `correlation`, 24 h TTL).
 - **No lot-level cost basis.** `upsert_holding` overwrites `shares`/`avg_cost`
   on conflict; adding to a position at a new price replaces the average
   rather than tracking individual tax lots.
-- **Sparse NAV history by design.** NAV snapshots are opportunistic page-view
-  records, not broker-sourced transaction history. A day without a portfolio
-  page view has no point, and a partially-priced valuation is deliberately
-  skipped rather than stored.
+- **Sparse NAV history by design.** NAV snapshots are app-generated records,
+  not broker-sourced transaction history. The daily job fills days without a
+  portfolio page visit only while the app process is running, and a
+  partially-priced valuation is deliberately skipped rather than stored.
 - **Fabrication check is magnitude-only**, not semantic (see §4) — it can
   match a fabricated number to an unrelated real figure that happens to be
   numerically close.

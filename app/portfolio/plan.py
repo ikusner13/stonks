@@ -33,6 +33,7 @@ class RebalanceItem(BaseModel):
     action: str
     delta_usd: float
     delta_shares: float | None
+    after_weight: float
 
 
 class RebalancePlan(BaseModel):
@@ -43,6 +44,23 @@ class RebalancePlan(BaseModel):
     items: list[RebalanceItem]
     untargeted: list[str]
     threshold: float = Field(default=DRIFT_THRESHOLD)
+
+
+class ContributionItem(BaseModel):
+    symbol: str
+    price: float | None
+    current_weight: float
+    target_weight: float
+    buy_usd: float
+    buy_shares: float | None
+    after_weight: float
+
+
+class ContributionPlan(BaseModel):
+    contribution: float
+    base_after: float
+    leftover_cash: float
+    items: list[ContributionItem]
 
 
 def init_targets_db() -> None:
@@ -141,6 +159,10 @@ def plan_rebalance(
             delta_usd = round((target_weight - current_weight) * base_value, 2)
             action = "buy" if delta_usd > 0 else "sell"
 
+        after_weight = current_weight
+        if action != "hold":
+            after_weight = (market_value + delta_usd) / base_value
+
         delta_shares = None
         if price is not None and price > 0:
             delta_shares = round(delta_usd / price, 4)
@@ -155,6 +177,7 @@ def plan_rebalance(
                 action=action,
                 delta_usd=delta_usd,
                 delta_shares=delta_shares,
+                after_weight=after_weight,
             )
         )
 
@@ -168,4 +191,95 @@ def plan_rebalance(
         cash_target_weight=max(0.0, 1.0 - target_sum),
         items=items,
         untargeted=untargeted,
+    )
+
+
+def _reduce_to_budget(amounts: dict[str, float], budget: float) -> dict[str, float]:
+    total = round(sum(amounts.values()), 2)
+    overage = round(total - budget, 2)
+    if overage <= 0 or not amounts:
+        return amounts
+    symbol = max(amounts, key=amounts.__getitem__)
+    amounts[symbol] = round(max(0.0, amounts[symbol] - overage), 2)
+    return amounts
+
+
+def plan_contribution(
+    valuation: PortfolioValuation, targets: list[Target], contribution: float
+) -> ContributionPlan | None:
+    """Plan buys-only deployment of new contribution cash."""
+    base_value = valuation.total_with_cash
+    target_map = {target.symbol: target.target_weight for target in _normalized_targets(targets)}
+    if contribution <= 0 or base_value <= 0 or not target_map:
+        return None
+
+    contribution = round(contribution, 2)
+    base_after = base_value + contribution
+    holdings_by_symbol = {holding.symbol: holding for holding in valuation.holdings}
+
+    deficits: dict[str, float] = {}
+    current_values: dict[str, float] = {}
+    for symbol, target_weight in target_map.items():
+        holding = holdings_by_symbol.get(symbol)
+        market_value = (
+            holding.market_value
+            if holding is not None and holding.market_value is not None
+            else 0.0
+        )
+        current_values[symbol] = market_value
+        deficits[symbol] = max(0.0, target_weight * base_after - market_value)
+
+    total_deficit = sum(deficits.values())
+    if total_deficit <= 0:
+        return ContributionPlan(
+            contribution=contribution,
+            base_after=base_after,
+            leftover_cash=contribution,
+            items=[],
+        )
+
+    if total_deficit <= contribution:
+        buy_amounts = {
+            symbol: round(deficit, 2)
+            for symbol, deficit in deficits.items()
+            if deficit > 0
+        }
+    else:
+        buy_amounts = {
+            symbol: round(contribution * deficit / total_deficit, 2)
+            for symbol, deficit in deficits.items()
+            if deficit > 0
+        }
+    buy_amounts = _reduce_to_budget(buy_amounts, contribution)
+    buy_amounts = {
+        symbol: buy_usd
+        for symbol, buy_usd in buy_amounts.items()
+        if buy_usd >= 1.0
+    }
+
+    items: list[ContributionItem] = []
+    for symbol, buy_usd in buy_amounts.items():
+        holding = holdings_by_symbol.get(symbol)
+        price = holding.price if holding is not None else None
+        buy_shares = round(buy_usd / price, 4) if price is not None and price > 0 else None
+        current_value = current_values[symbol]
+        items.append(
+            ContributionItem(
+                symbol=symbol,
+                price=price,
+                current_weight=current_value / base_after,
+                target_weight=target_map[symbol],
+                buy_usd=buy_usd,
+                buy_shares=buy_shares,
+                after_weight=(current_value + buy_usd) / base_after,
+            )
+        )
+
+    items.sort(key=lambda item: item.buy_usd, reverse=True)
+    leftover_cash = round(contribution - sum(item.buy_usd for item in items), 2)
+    return ContributionPlan(
+        contribution=contribution,
+        base_after=base_after,
+        leftover_cash=max(0.0, leftover_cash),
+        items=items,
     )

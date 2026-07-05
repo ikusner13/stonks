@@ -6,6 +6,9 @@
 | --- | --- | --- | --- |
 | `OPENROUTER_API_KEY` | **Required** for research/discover | Auth for every LLM call (research, critic, discovery) via OpenRouter. | The web app starts anyway (`LLM_CONFIGURED=False` logs a startup warning and is passed to templates to show a disabled state). The first LLM call raises `RuntimeError("OPENROUTER_API_KEY is not set...")` lazily — web routes catch it as a generic exception and show an error partial; the CLI has no such guard and will print the raw traceback. |
 | `DAILY_LLM_BUDGET_USD` | Optional (default `5`; `0` disables) | Stops new paid LLM runs once today's UTC `usage.jsonl` spend is at or above this amount. | Cached research reports still load because the guard only runs inside cache misses. Uncached research and discovery show a budget error in the web app; CLI commands raise the same guard exception. |
+| `DISCORD_WEBHOOK_URL` | Optional (default empty) | Enables Discord drift-alert posts from the daily portfolio job when `DRIFT_ALERT_ENABLED=1`. | Empty means alerts are disabled; snapshots still run. |
+| `DAILY_JOB_HOUR_UTC` | Optional (default `21`) | UTC hour for the in-process daily portfolio job; `21` runs after the regular US market close. Set `<0` to disable the loop, primarily for tests. | Uses the default hour. If disabled, no automatic snapshot or alert runs until the app is restarted with a non-negative hour. |
+| `DRIFT_ALERT_ENABLED` | Optional (default `1`) | Master switch for daily Discord rebalance drift alerts. | Set `0` to suppress alerts while still allowing the daily snapshot job to run. |
 | `FINNHUB_API_KEY` | Optional | Preferred quote/news source over Yahoo when set. | Finnhub calls are skipped entirely (not attempted, not marked `error` — they simply produce no `sources` entry). Quote/news fall back to Yahoo. |
 | `FRED_API_KEY` | Optional | Enables macro context (fed funds, CPI YoY, 10y treasury, unemployment, GDP growth). | `sources.macro = "disabled"`; `TickerData.macro` stays `None`; the report has no macro section rather than an empty one. |
 | `SEC_IDENTITY` | Optional | Contact email SEC EDGAR requires for XBRL financials. | Falls back to a hardcoded address in `app/data/sec.py`; financials still fetch normally — set your own for anything beyond local use. |
@@ -65,6 +68,24 @@ MSFT,4,
 Symbols are uppercased before saving. `shares` must be a positive number;
 blank or unparseable `avg_cost` values are saved as empty. Bad data rows are
 reported with line numbers and do not block valid rows from importing.
+
+## Daily portfolio job and alerts
+
+The web process starts one in-process `asyncio` daily job from the FastAPI
+lifespan. There is no sidecar service: the app must be running at
+`DAILY_JOB_HOUR_UTC` for that day's automatic snapshot and alert check to
+happen. The job records the same NAV snapshot the portfolio page records, so
+the snapshot rule is unchanged: skip partially-priced or zero-value valuations.
+
+Discord drift alerts are deterministic rebalance-plan messages. They run only
+when `DRIFT_ALERT_ENABLED=1` and `DISCORD_WEBHOOK_URL` is non-empty, and they
+dedupe on the current actionable symbol set so repeated daily checks do not
+spam the same drift. A new symbol crossing into the actionable set sends a new
+alert. Webhook post failures are logged and do not update the dedupe key.
+
+To configure Discord, create an incoming webhook for the target channel and
+copy its URL into `.env` as `DISCORD_WEBHOOK_URL`. Discord's UI walkthrough is:
+<https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks>.
 
 ## Cost & usage
 
