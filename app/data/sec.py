@@ -37,9 +37,11 @@ class SecFinancials(BaseModel):
     cash_and_equivalents: float | None = None
     total_debt: float | None = None
     shares_outstanding: float | None = None
+    shares_outstanding_prior: float | None = None
     operating_cash_flow: float | None = None
     free_cash_flow: float | None = None
     fiscal_period: str | None = None
+    prior_period: str | None = None
     form: str | None = None
     filed: str | None = None
 
@@ -47,7 +49,8 @@ class SecFinancials(BaseModel):
         _numeric_fields = {
             "revenue", "net_income", "gross_profit", "operating_income",
             "total_assets", "total_liabilities", "cash_and_equivalents",
-            "total_debt", "shares_outstanding", "operating_cash_flow", "free_cash_flow",
+            "total_debt", "shares_outstanding", "shares_outstanding_prior",
+            "operating_cash_flow", "free_cash_flow",
         }
         return [
             v for k, v in self.model_dump().items()
@@ -63,6 +66,18 @@ def _get_concept(df: pd.DataFrame, concept: str) -> float | None:
     if not val_cols:
         return None
     v = rows[val_cols[0]].iloc[0]
+    return None if pd.isna(v) else float(v)
+
+
+def _get_concept_period(
+    df: pd.DataFrame,
+    concept: str,
+    period_col: str,
+) -> float | None:
+    rows = df[(df["standard_concept"] == concept) & (~df["dimension"].astype(bool))]
+    if rows.empty or period_col not in df.columns:
+        return None
+    v = rows[period_col].iloc[0]
     return None if pd.isna(v) else float(v)
 
 
@@ -95,6 +110,13 @@ def _fetch_blocking(symbol: str) -> dict[str, Any]:
         result["total_liabilities"] = _get_concept(df_bs, "Liabilities")
         result["cash_and_equivalents"] = _get_concept(df_bs, "CashAndMarketableSecurities")
         result["shares_outstanding"] = _get_concept(df_bs, "SharesYearEnd")
+        val_cols = [c for c in df_bs.columns if re.match(r"\d{4}", c)]
+        if len(val_cols) >= 2:
+            prior_period = val_cols[-1]
+            shares_prior = _get_concept_period(df_bs, "SharesYearEnd", prior_period)
+            if shares_prior is not None:
+                result["shares_outstanding_prior"] = shares_prior
+                result["prior_period"] = prior_period
         # total_debt = long-term + short-term
         ltd = _get_concept(df_bs, "LongTermDebt")
         std = _get_concept(df_bs, "ShortTermDebt")
