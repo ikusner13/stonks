@@ -25,7 +25,6 @@ class NavSeries(BaseModel):
     change_1d_pct: float | None
     change_total: float | None
     change_total_pct: float | None
-    svg_polyline: str | None
 
 
 def init_snapshots_db() -> None:
@@ -120,25 +119,4 @@ def build_nav_series(points: list[NavSnapshot]) -> NavSeries:
         change_1d_pct=change_1d_pct,
         change_total=change_total,
         change_total_pct=change_total_pct,
-        svg_polyline=_svg_polyline(points),
     )
-
-
-def _svg_polyline(points: list[NavSnapshot]) -> str | None:
-    if len(points) < 2:
-        return None
-
-    width = 600.0
-    height = 120.0
-    values = [p.total_with_cash for p in points]
-    low = min(values)
-    high = max(values)
-    spread = high - low
-    x_step = width / (len(points) - 1)
-
-    coords: list[str] = []
-    for idx, value in enumerate(values):
-        x = idx * x_step
-        y = height / 2 if spread == 0 else height - ((value - low) / spread * height)
-        coords.append(f"{x:.2f},{y:.2f}")
-    return " ".join(coords)

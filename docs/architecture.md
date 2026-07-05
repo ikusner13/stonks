@@ -38,8 +38,8 @@ line to `.cache/usage.jsonl` when the `with_run` context exits. Imports
 `transactions.py` owns the optional SQLite-backed transaction ledger, applies
 validated buys/sells/deposits/withdrawals to authoritative holdings and cash,
 and computes realized P/L rollups plus money-weighted return.
-`snapshots.py` owns the SQLite-backed daily NAV history and the server-computed
-series model used by the equity-curve partial.
+`snapshots.py` owns the SQLite-backed daily NAV history and the pure NAV series
+points/deltas used by the equity-curve partial.
 `history.py` is the shared price-history fetch + cleaning helper
 (`fetch_price_history`, `drop_short_history`) used by both `performance.py`
 (the allocation backtest, via `quantstats_lumi`) and `optimize.py` (mean-variance
@@ -51,10 +51,12 @@ correlation fetches its own return history and reuses `performance.py`'s
 `_fetch_returns` via a local import inside the function body to avoid a
 module-level cycle. Imports `app.config`, `app.data`, `app.schemas`.
 
-**`app/web/`** — The FastAPI app (`app.py`), Jinja2 templates, and static
-assets. Owns no domain logic — every route is a thin composition of calls into
-`data`/`llm`/`indicators`/`portfolio`, plus the Jinja2 numeric-formatting
-filters (`fmt_num`, `fmt_cap`, `pct`). Imports nearly everything else in `app/`.
+**`app/web/`** — The FastAPI app (`app.py`), Jinja2 templates, static assets,
+and pure SVG/color helpers in `charts.py`. Owns no domain logic — every route
+is a thin composition of calls into `data`/`llm`/`indicators`/`portfolio`, plus
+the Jinja2 numeric-formatting filters (`fmt_num`, `fmt_cap`, `pct`) and
+server-computed chart models for templates to render. Imports nearly everything
+else in `app/`.
 
 **`app/jobs.py`** — The in-process daily background loop started from the
 FastAPI lifespan. It sleeps until `DAILY_JOB_HOUR_UTC`, records a NAV snapshot
@@ -138,11 +140,12 @@ forward references those imports satisfy.
 (always recomputed — though each holding's price is subject to the 15-minute
 `data` cache, so this isn't a guaranteed-fresh network fetch), opportunistically
 records a daily NAV snapshot from that valuation, `assess_portfolio_health`
-computed inline from that valuation, and the holdings table — all present in
-the initial HTML. Snapshot writes are wrapped in `try/except` with a warning log,
-so history storage can never break page rendering. The remaining panels and
-forms are then loaded or submitted independently; the daily job can also
-record that UTC day's NAV without a page visit:
+computed inline from that valuation, the allocation donut slices from priced
+holdings plus cash, and the holdings table — all present in the initial HTML.
+Snapshot writes are wrapped in `try/except` with a warning log, so history
+storage can never break page rendering. The remaining panels and forms are
+then loaded or submitted independently; the daily job can also record that
+UTC day's NAV without a page visit:
 
 - **A) Holdings, cash, and CSV import** — rendered inline on page load (no HTMX
   round-trip needed for the initial view). Add/remove (`POST /portfolio/holdings`,
@@ -151,17 +154,23 @@ record that UTC day's NAV without a page visit:
   swap in a fresh `holdings_table` partial. A wrapping holder also listens for
   `holdings-changed` and refreshes from `GET /portfolio/holdings`, so applied
   transactions update the authoritative holdings table without reloading the page.
-- **B) Health & correlation** — health is computed inline (part of the initial
-  page render, no fetch of its own). Correlation is lazy:
+- **B) Health & correlation** — health and the allocation donut are computed
+  inline (part of the initial page render, no fetch of their own). Correlation
+  is lazy:
   `hx-get="/portfolio/correlation" hx-trigger="load"` fires immediately after
-  page load, calling `compute_correlation_insight` (its own `correlation`-cache,
-  §3) and swapping in `partials/portfolio_correlation.html`.
+  page load. The route recomputes live valuation to order symbols by portfolio
+  weight descending, calls `compute_correlation_insight` (its own
+  `correlation`-cache, §3), and swaps in
+  `partials/portfolio_correlation.html`, which renders the narrative, high
+  pairs, and a matrix heatmap when the cached insight includes one.
 - **C) NAV history** — lazy-loaded on `hx-trigger="load"`:
   `GET /portfolio/nav` reads the last 365 daily snapshots from SQLite, computes
-  deltas against the previous and first snapshots, and renders an SVG polyline
-  string for a `600x120` viewBox in `partials/nav_history.html`. It also
+  deltas against the previous and first snapshots via `build_nav_series()`,
+  then the web route calls `nav_area(series.points)` to build a `NavChart`
+  containing a `600x120` polyline, closed area-fill path, first-value baseline,
+  and first/last/min/max labels for `partials/nav_history.html`. It also
   recomputes current valuation and `ReturnsSummary` so the NAV panel can show
-  the money-weighted return badge. With fewer than two points, no polyline is
+  the money-weighted return badge. With fewer than two points, no chart is
   produced.
 - **D) Allocation backtest** — also lazy-loaded on `hx-trigger="load"`:
   `GET /portfolio/performance` recomputes `value_holdings()` again (independent
@@ -182,7 +191,9 @@ record that UTC day's NAV without a page visit:
   rows or, if the form is empty, from current holdings. `optimize()` runs in a
   worker thread (`anyio.to_thread.run_sync`, since `skfolio`/`numpy` there are
   synchronous and CPU-bound), then `analyze_drift` compares the result's
-  current-vs-optimal weights before rendering `partials/portfolio_results.html`.
+  current-vs-optimal weights and `frontier_chart()` maps the efficient frontier
+  plus current/optimal markers into SVG coordinates before rendering
+  `partials/portfolio_results.html`.
 - **G) Transactions** — lazy-loaded on `hx-trigger="load, txns-changed from:body"`:
   `GET /portfolio/transactions` computes current valuation, `ReturnsSummary`,
   and the last 20 ledger rows. `POST /portfolio/transactions` validates and
@@ -240,7 +251,7 @@ same lock, and exceptions still propagate without writing a cache entry.
 | `macro` | `"latest"` (single global key, not per-symbol) | 6 h | A `None` result (no `FRED_API_KEY`, or the FRED call raised) is never persisted. |
 | `report` | `SYMBOL:YYYY-MM-DD:mode` | 24 h | An `InsufficientDataError` raised inside `produce()` propagates before any write — never cached, always retried. |
 | `scorecard` | `SYMBOL:YYYY-MM-DD` | 24 h | `produce()` always returns a scorecard dict (indicators default to `unavailable` rather than raising), so this is effectively always cached once computed. |
-| `correlation` | `SYM1-SYM2-...:lookback_days:YYYY-MM-DD` (symbols sorted, joined with `-`) | 24 h | The only namespace whose `produce()` can genuinely return `None` on success (insufficient overlapping history) — that `None` is, by the same universal rule, never persisted, so an under-covered portfolio retries every request until it clears the data threshold rather than being stuck with a cached "no insight" result. |
+| `correlation` | `SYM1-SYM2-...:lookback_days:YYYY-MM-DD` (symbols sorted, joined with `-`) | 24 h | The only namespace whose `produce()` can genuinely return `None` on success (insufficient overlapping history) — that `None` is, by the same universal rule, never persisted, so an under-covered portfolio retries every request until it clears the data threshold rather than being stuck with a cached "no insight" result. Older cached success blobs may lack `matrix`; `CorrelationInsight.matrix` defaults to `None` until the 24h TTL refreshes. |
 
 `fresh=True` (the CLI's `--fresh`, or `?fresh=1` on the research route) bypasses
 the read side of `with_cache` unconditionally — it still writes the fresh

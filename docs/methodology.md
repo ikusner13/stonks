@@ -420,16 +420,18 @@ that holding is excluded from cost/P&L totals even when priced. Per-holding
 `weight` is `market_value / total_value` for every *priced* holding as soon
 as `total_value > 0` — an unpriced holding leaves only its own weight `null`
 and does not block the others from getting one. These per-holding weights
-are what the Health and Allocation Backtest panels consume; Correlation
-instead takes the raw holdings symbol list and fetches its own independent
-return history, without reference to weight at all.
+are what the Health, allocation donut, Allocation Backtest, and correlation
+symbol ordering consume. Correlation still fetches its own independent return
+history; weights only determine display order.
 
 Cash is stored separately in SQLite settings as a single non-negative dollar
 amount. `value_holdings` exposes it as `cash`, `total_with_cash`
 (`total_value + cash`), and `cash_pct` (`cash / total_with_cash` when positive).
 These fields do **not** change `total_value` or per-holding `weight`, so the
-Health, Correlation, Allocation Backtest, and Optimizer panels keep their
-existing securities-only allocation semantics.
+Health concentration, Correlation return math, Allocation Backtest, and
+Optimizer panels keep their existing securities-only allocation semantics.
+Cash is included only in the allocation donut, position sizing, and rebalance
+base where explicitly stated.
 
 **Target allocations & rebalance plan** (`app/portfolio/plan.py`). User target
 weights are stored as fractions (`0.25` means 25%) in the `targets` SQLite
@@ -533,6 +535,17 @@ persists a partially-priced or zero-value NAV. The NAV series is actual account
 history over recorded snapshots (`total_with_cash`, securities plus cash),
 unlike the constant-weight Allocation Backtest below.
 
+`build_nav_series(points)` returns only the snapshot points and delta values.
+The web route then calls `app/web/charts.py::nav_area(series.points)` to build
+a `NavChart` when there are at least two snapshots. Geometry is for a 600×120
+plot: `x = index * 600 / (n - 1)`, and `y = 60` for a flat series, otherwise
+`y = 120 - ((total_with_cash - min) / (max - min) * 120)`. The polyline is the
+formatted `"x,y"` coordinate list, the fill path starts at the first point's
+bottom edge, follows the polyline, closes to the last point's bottom edge, and
+the dotted baseline is the y-coordinate of the first snapshot value. First/last
+date labels and min/max dollar labels come from the first, last, min, and max
+points respectively.
+
 **Allocation backtest** (`app/portfolio/performance.py::compute_performance`).
 
 > **This is not the account's realized return.** It replays *today's* live
@@ -569,6 +582,14 @@ sample mean × 252 and sample covariance × 252 — no shrinkage).
 - **Efficient frontier**: only computed when `n ≥ 2` and `frontier_points ≥ 2`
   (default 20), via a separate `MINIMIZE_RISK` sweep at `efficient_frontier_size`
   points.
+- **Efficient-frontier SVG**: `app/web/charts.py::frontier_chart` renders only
+  when there are at least two frontier points. It builds a 600×260 chart with
+  volatility on x and expected return on y, includes current and optimal
+  markers in the min/max range calculation, pads both ranges by 5% of their
+  span (or `abs(value) * 0.05`, falling back to `0.01`, when flat), and maps
+  each point with `x = (vol - x_min) / (x_max - x_min) * 600`,
+  `y = 260 - ((return - y_min) / (y_max - y_min) * 260)`. Axis ticks are
+  min/mid/max percentages for each padded range.
 - **Why it's a starting point, not a target**: the result carries a fixed
   disclaimer ("Research context only, not investment advice... assumes the
   past is representative"), and mean-variance optimization on sample means is
@@ -593,6 +614,29 @@ returns; a pair is "high" at `≥ 0.80`. Portfolio-level `level`:
 `high` if `avg_correlation ≥ 0.70` or ≥3 high pairs; `moderate` if
 `avg_correlation ≥ 0.40` or any high pair exists; else `low`. Cached per
 symbol-set + lookback + trading day (namespace `correlation`, 24 h TTL).
+`CorrelationInsight.matrix` stores the dense correlation matrix rounded to
+2 decimal places; the field defaults to `None` so older cached records parse
+until their 24-hour TTL expires.
+
+**Server-rendered chart helpers** (`app/web/charts.py`). All chart geometry and
+colors are deterministic Python; Jinja renders the returned SVG strings.
+
+- **Allocation donut**: `donut(slices)` drops non-positive or non-finite
+  values, sorts descending, keeps the top 11, aggregates all remaining positive
+  values into gray `"Other"`, and returns percentages summing to 100 over the
+  kept-plus-Other total. Paths target a 220×220 viewBox centered at `(110,110)`,
+  outer radius `100`, inner radius `62` (ring hole ratio `0.62`), start at
+  12 o'clock, and proceed clockwise. A single full-circle slice is emitted as
+  two half-ring arc subpaths because SVG cannot draw one 360° arc.
+- **Categorical palette**: 11 fixed Okabe-Ito-style categorical colors plus
+  `OTHER_GRAY = "#9ca3af"` for the aggregate slice. The web health panel feeds
+  priced holdings by market value plus a cash slice when `cash > 0`; unpriced
+  holdings are excluded and named under the legend.
+- **Correlation cell color**: `corr_color(rho)` clamps `rho` to `[-1, 1]`.
+  Negative values linearly interpolate from white to `#2166ac`; positive
+  values interpolate from white to `#b2182c`; `0` is exactly `#ffffff`. Cell
+  text is `#ffffff` when `abs(rho) > 0.6`, otherwise `#173a40`, and the value
+  is always printed in the cell so color is redundant.
 
 ## 8. Known limitations
 

@@ -63,7 +63,7 @@ def test_record_snapshot_skips_unpriced_symbols_and_zero_value():
     assert list_snapshots() == []
 
 
-def test_build_nav_series_computes_deltas_and_polyline():
+def test_build_nav_series_computes_deltas_without_web_chart():
     series = build_nav_series([
         NavSnapshot(
             day="2026-07-01",
@@ -95,7 +95,7 @@ def test_build_nav_series_computes_deltas_and_polyline():
     assert series.change_1d_pct == pytest.approx(10 / 120)
     assert series.change_total == 30
     assert series.change_total_pct == pytest.approx(30 / 100)
-    assert series.svg_polyline == "0.00,120.00 300.00,40.00 600.00,0.00"
+    assert not hasattr(series, "chart")
 
 
 def test_build_nav_series_handles_single_and_flat_series():
@@ -109,7 +109,6 @@ def test_build_nav_series_handles_single_and_flat_series():
             unrealized_pl=10,
         )
     ])
-    assert one_point.svg_polyline is None
     assert one_point.change_1d is None
     assert one_point.change_total is None
 
@@ -131,7 +130,8 @@ def test_build_nav_series_handles_single_and_flat_series():
             unrealized_pl=10,
         ),
     ])
-    assert flat.svg_polyline == "0.00,60.00 600.00,60.00"
+    assert flat.change_1d == 0
+    assert not hasattr(flat, "chart")
 
 
 def test_nav_route_renders_partial():

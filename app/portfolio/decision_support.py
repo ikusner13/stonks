@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from itertools import combinations
+from math import isfinite
 
 from pydantic import BaseModel, Field
 
@@ -309,6 +310,7 @@ class CorrelationInsight(BaseModel):
     threshold: float = HIGH_CORRELATION
     excluded_symbols: list[str] = Field(default_factory=list)
     sample_days: int = 0
+    matrix: dict[str, dict[str, float]] | None = None
 
 
 def analyze_correlation(
@@ -373,6 +375,14 @@ def analyze_correlation(
         high_pairs=high_pairs,
         level=level,
         note=note,
+        matrix={
+            a: {
+                b: round(matrix[a][b], 2)
+                for b in symbols
+                if b in matrix.get(a, {}) and isfinite(matrix[a][b])
+            }
+            for a in symbols
+        },
     )
 
 

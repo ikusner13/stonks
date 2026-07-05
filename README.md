@@ -97,11 +97,16 @@ your saved holdings, transaction ledger, and watchlist entries are gone for good
 - **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
   any research report, and used to prefill the portfolio page.
 - **Portfolio** — holdings valuation, CSV holdings import, dry-powder tracking,
-  daily NAV snapshots, optional Discord drift alerts, and an optional
-  transactions ledger, plus decision-support panels:
-  - **Health**: concentration by top-1/3/5 holding weight, in plain language.
+  daily NAV snapshots, optional Discord drift alerts, an optional
+  transactions ledger, and server-rendered visuals, plus decision-support
+  panels:
+  - **Health**: concentration by top-1/3/5 holding weight, in plain language,
+    with an allocation donut across priced holdings and cash.
   - **Correlation**: pairwise return correlation flags holdings that move
-    together — a source of hidden concentration position weights alone miss.
+    together — a source of hidden concentration position weights alone miss —
+    and renders the full matrix as a value-labeled heatmap.
+  - **NAV history**: filled SVG area chart from stored daily portfolio
+    snapshots, plus recent NAV rows.
   - **Allocation backtest**: CAGR/Sharpe/Sortino/volatility/max-drawdown for
     your *current* weights held constant over history, against a benchmark.
   - **Target allocations**: save your own target weights, adopt optimizer
@@ -109,9 +114,9 @@ your saved holdings, transaction ledger, and watchlist entries are gone for good
     holdings plus recorded cash as the base, including a buy-only contribution
     what-if preview for new cash.
   - **Optimizer**: mean-variance optimal weights (max-Sharpe or min-risk) with
-    an efficient frontier, current-vs-optimal drift signals, and confidence-
-    scaled position-sizing guidance for new candidates using holdings plus
-    recorded cash as the investable base.
+    an SVG efficient frontier, current-vs-optimal drift signals, and
+    confidence-scaled position-sizing guidance for new candidates using
+    holdings plus recorded cash as the investable base.
   - **Transactions**: deposits, withdrawals, buys, sells, and CSV import apply
     to recorded cash and holdings; the ledger reports realized P/L and
     money-weighted return. Deleting a row removes the record only, not its
@@ -151,7 +156,7 @@ app/
   indicators/  deterministic indicator scorecard + confidence assessment
   llm/         Pydantic AI pipelines: research, critic, discovery, usage tracking
   portfolio/   holdings valuation, transactions/MWR, NAV snapshots, targets/rebalance, optimizer, backtest, decision_support
-  web/         FastAPI app, Jinja2 templates, HTMX partials, static assets
+  web/         FastAPI app, Jinja2 templates, HTMX partials, SVG chart helpers, static assets
   cache.py     file-based read-through KV (data/sec/macro/report/scorecard/correlation caches)
   db.py        SQLite watchlist/settings store + shared connection helper
   jobs.py      in-process daily NAV snapshot + Discord drift alert loop

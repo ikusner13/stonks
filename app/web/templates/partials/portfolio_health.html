@@ -1,4 +1,43 @@
-{# Portfolio Health overview. Context: health = PortfolioHealth | None #}
+{# Portfolio Health overview.
+   Context: health = PortfolioHealth | None, allocation_slices = list[DonutSlice],
+   valuation = PortfolioValuation #}
+{% if allocation_slices %}
+<div class="mb-5 grid gap-5 lg:grid-cols-[260px_1fr]">
+  <div>
+    <svg viewBox="0 0 220 220" role="img" aria-label="Portfolio allocation by market value" class="h-56 w-56">
+      {% for slice in allocation_slices %}
+      <path d="{{ slice.path_d }}" fill="{{ slice.color }}" stroke="var(--bg-base)" stroke-width="2"></path>
+      {% endfor %}
+    </svg>
+  </div>
+  <div>
+    <h3 class="mb-3 text-sm font-semibold">Allocation by market value</h3>
+    <ul class="grid gap-2 sm:grid-cols-2">
+      {% for slice in allocation_slices %}
+      <li class="flex items-center justify-between gap-3 rounded-xl border border-[var(--line)] px-3 py-2 text-sm">
+        <span class="flex min-w-0 items-center gap-2">
+          <span class="h-3 w-3 shrink-0 rounded-sm" style="background: {{ slice.color }}"></span>
+          <span class="truncate font-medium">{{ slice.label }}</span>
+        </span>
+        <span class="shrink-0 text-right tabular-nums text-[var(--sea-ink-soft)]">
+          {{ '%.1f%%' | format(slice.pct) }} · ${{ slice.value | fmt_num }}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% if valuation.unpriced_symbols %}
+    <p class="mt-3 text-xs text-[var(--sea-ink-soft)]">
+      Excluded from allocation because prices are unavailable: {{ valuation.unpriced_symbols | join(", ") }}.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% elif valuation.unpriced_symbols %}
+<p class="mb-4 text-xs text-[var(--sea-ink-soft)]">
+  Allocation excludes unpriced holdings: {{ valuation.unpriced_symbols | join(", ") }}.
+</p>
+{% endif %}
+
 {% if health is none %}
 <p class="text-sm text-[var(--sea-ink-soft)]">Add holdings with live prices to see your concentration and diversification.</p>
 {% else %}
