@@ -429,15 +429,16 @@ point. The NAV series is actual account history over recorded page views
 (`total_with_cash`, securities plus cash), unlike the constant-weight
 Allocation Backtest below.
 
-`build_nav_series(points)` returns deltas plus a `NavChart` when there are at
-least two snapshots. Geometry is computed in `app/web/charts.py::nav_area` for
-a 600×120 plot: `x = index * 600 / (n - 1)`, and `y = 60` for a flat series,
-otherwise `y = 120 - ((total_with_cash - min) / (max - min) * 120)`. The
-polyline is the formatted `"x,y"` coordinate list, the fill path starts at the
-first point's bottom edge, follows the polyline, closes to the last point's
-bottom edge, and the dotted baseline is the y-coordinate of the first snapshot
-value. First/last date labels and min/max dollar labels come from the first,
-last, min, and max points respectively.
+`build_nav_series(points)` returns only the snapshot points and delta values.
+The web route then calls `app/web/charts.py::nav_area(series.points)` to build
+a `NavChart` when there are at least two snapshots. Geometry is for a 600×120
+plot: `x = index * 600 / (n - 1)`, and `y = 60` for a flat series, otherwise
+`y = 120 - ((total_with_cash - min) / (max - min) * 120)`. The polyline is the
+formatted `"x,y"` coordinate list, the fill path starts at the first point's
+bottom edge, follows the polyline, closes to the last point's bottom edge, and
+the dotted baseline is the y-coordinate of the first snapshot value. First/last
+date labels and min/max dollar labels come from the first, last, min, and max
+points respectively.
 
 **Allocation backtest** (`app/portfolio/performance.py::compute_performance`).
 

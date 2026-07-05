@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pydantic import BaseModel
 
 from ..db import connect
-from ..web.charts import NavChart, nav_area
 from .holdings import PortfolioValuation
 
 
@@ -26,7 +25,6 @@ class NavSeries(BaseModel):
     change_1d_pct: float | None
     change_total: float | None
     change_total_pct: float | None
-    chart: NavChart | None
 
 
 def init_snapshots_db() -> None:
@@ -121,5 +119,4 @@ def build_nav_series(points: list[NavSnapshot]) -> NavSeries:
         change_1d_pct=change_1d_pct,
         change_total=change_total,
         change_total_pct=change_total_pct,
-        chart=nav_area(points),
     )

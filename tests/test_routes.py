@@ -398,6 +398,20 @@ def test_correlation_partial_with_matrix_renders_n_squared_cells(monkeypatch):
     assert "-0.25" in response.text
 
 
+def test_correlation_insight_validates_old_cache_payload_without_matrix():
+    insight = CorrelationInsight.model_validate(
+        {
+            "symbols": ["AAA", "BBB"],
+            "avg_correlation": 0.42,
+            "high_pairs": [],
+            "level": "moderate",
+            "note": "cached before matrix field existed",
+        }
+    )
+
+    assert insight.matrix is None
+
+
 def test_optimizer_partial_contains_frontier_polyline(monkeypatch):
     def fake_optimize(req):
         metrics = PortfolioMetrics(

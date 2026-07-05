@@ -35,8 +35,8 @@ line to `.cache/usage.jsonl` when the `with_run` context exits. Imports
 
 **`app/portfolio/`** — Everything that isn't single-ticker research.
 `holdings.py` owns the SQLite-backed positions table and live valuation.
-`snapshots.py` owns the SQLite-backed daily NAV history and the server-computed
-series model used by the equity-curve partial.
+`snapshots.py` owns the SQLite-backed daily NAV history and the pure NAV series
+points/deltas used by the equity-curve partial.
 `history.py` is the shared price-history fetch + cleaning helper
 (`fetch_price_history`, `drop_short_history`) used by both `performance.py`
 (the allocation backtest, via `quantstats_lumi`) and `optimize.py` (mean-variance
@@ -152,7 +152,8 @@ then loaded or submitted independently:
   pairs, and a matrix heatmap when the cached insight includes one.
 - **C) NAV history** — lazy-loaded on `hx-trigger="load"`:
   `GET /portfolio/nav` reads the last 365 daily snapshots from SQLite, computes
-  deltas against the previous and first snapshots, and builds a `NavChart`
+  deltas against the previous and first snapshots via `build_nav_series()`,
+  then the web route calls `nav_area(series.points)` to build a `NavChart`
   containing a `600x120` polyline, closed area-fill path, first-value baseline,
   and first/last/min/max labels for `partials/nav_history.html`. With fewer
   than two points, no chart is produced.

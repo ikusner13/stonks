@@ -56,7 +56,7 @@ from ..portfolio.snapshots import (
     list_snapshots,
     record_snapshot,
 )
-from .charts import corr_color, donut, frontier_chart
+from .charts import corr_color, donut, frontier_chart, nav_area
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -637,10 +637,15 @@ async def portfolio_rebalance(request: Request):
 async def portfolio_nav(request: Request):
     try:
         series = build_nav_series(list_snapshots())
+        chart = nav_area(series.points)
         return templates.TemplateResponse(
             request,
             "partials/nav_history.html",
-            {"series": series, "recent": list(reversed(series.points[-10:]))},
+            {
+                "series": series,
+                "chart": chart,
+                "recent": list(reversed(series.points[-10:])),
+            },
         )
     except Exception:
         logger.exception("portfolio nav history failed")
