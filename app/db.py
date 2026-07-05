@@ -13,7 +13,7 @@ from typing import Iterator
 
 from pydantic import BaseModel
 
-from .config import DB_PATH
+from . import config
 
 
 class WatchItem(BaseModel):
@@ -22,9 +22,11 @@ class WatchItem(BaseModel):
 
 
 @contextmanager
-def _conn() -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(DB_PATH)
+def connect() -> Iterator[sqlite3.Connection]:
+    conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     try:
         yield conn
         conn.commit()
@@ -33,7 +35,7 @@ def _conn() -> Iterator[sqlite3.Connection]:
 
 
 def init_db() -> None:
-    with _conn() as c:
+    with connect() as c:
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS watchlist (
@@ -46,13 +48,13 @@ def init_db() -> None:
 
 
 def list_items() -> list[WatchItem]:
-    with _conn() as c:
+    with connect() as c:
         rows = c.execute("SELECT symbol, value FROM watchlist ORDER BY added_at").fetchall()
     return [WatchItem(symbol=r["symbol"], value=r["value"]) for r in rows]
 
 
 def has(symbol: str) -> bool:
-    with _conn() as c:
+    with connect() as c:
         row = c.execute(
             "SELECT 1 FROM watchlist WHERE symbol = ?", (symbol.upper(),)
         ).fetchone()
@@ -60,12 +62,12 @@ def has(symbol: str) -> bool:
 
 
 def add(symbol: str) -> None:
-    with _conn() as c:
+    with connect() as c:
         c.execute(
             "INSERT OR IGNORE INTO watchlist (symbol) VALUES (?)", (symbol.upper(),)
         )
 
 
 def remove(symbol: str) -> None:
-    with _conn() as c:
+    with connect() as c:
         c.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol.upper(),))

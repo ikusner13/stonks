@@ -54,10 +54,15 @@ filters (`fmt_num`, `fmt_cap`, `pct`). Imports nearly everything else in `app/`.
 **`app/cache.py`** — The one dependency-light file-cache primitive
 (`read_cache`/`write_cache`/`with_cache`) every namespace in §3 is built on.
 No external dependency (no Redis/SQLite) — one JSON file per key under
-`.cache/<namespace>/`.
+`.cache/<namespace>/`. Concurrent in-process misses for the same namespace/key
+are coalesced with a per-key async lock, so only the first caller runs the
+expensive producer and later waiters re-check the file cache before returning.
 
 **`app/db.py`** — The watchlist table (separate from `portfolio/holdings.py`'s
-holdings table, though both live in the same SQLite file at `STOCKS_DB_PATH`).
+holdings table, though both live in the same SQLite file at `STOCKS_DB_PATH`)
+plus the shared SQLite connection helper. Each connection reads
+`app.config.DB_PATH` lazily, enables WAL, sets a 5s busy timeout, commits on
+success, and closes immediately.
 
 **`app/schemas.py`** — All Pydantic contracts shared across modules
 (`TickerData`, `TickerReport`, `Critique`, `ResearchResult`, discovery models).
@@ -152,6 +157,11 @@ at itself on failure — a failed panel never takes down the rest of the page.
 All namespaces share `app/cache.py`'s file-based read-through cache: one JSON
 file per key at `.cache/<namespace>/<sanitized-key>.json`, holding
 `{"expiresAt": <epoch ms or 0>, "value": <payload>}`.
+`with_cache()` also coalesces concurrent in-process misses for the same
+namespace/key: waiters serialize behind the first producer, then re-read the
+cache so duplicate LLM calls or market-data downloads are avoided when the
+first producer succeeds. `fresh=True` skips the initial read but still uses the
+same lock, and exceptions still propagate without writing a cache entry.
 
 | Namespace | Key shape | TTL | Negative-caching semantics |
 | --- | --- | --- | --- |
@@ -216,10 +226,10 @@ result back afterward, refreshing the TTL.
 - Pydantic AI's `agent.run()` calls are natively async (httpx under the hood)
   and need no thread offload.
 - **SQLite is connection-per-call, always synchronous, never offloaded to a
-  thread.** Both `app/db.py` (watchlist) and `app/portfolio/holdings.py`
-  (holdings) open a fresh `sqlite3.connect(DB_PATH)` per function call via a
-  `contextmanager`, commit, and close — no pooling, no async driver. Several
-  of these calls (e.g. `list_holdings()` inside the `async def value_holdings`)
+  thread.** `app/db.py::connect()` opens a fresh `sqlite3.connect(config.DB_PATH)`
+  per function call, configures WAL plus `busy_timeout=5000`, commits, and
+  closes — no pooling, no async driver. Several of these calls (e.g.
+  `list_holdings()` inside the `async def value_holdings`)
   run inline inside an `async def` without `to_thread`, meaning they briefly
   block the event loop. At this app's actual scale (single user, local SQLite
   file) that's a non-issue in practice, but it is a real inconsistency with

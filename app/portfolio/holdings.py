@@ -4,28 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
-from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Iterator
 
 from pydantic import BaseModel, Field
 
-from ..config import DB_PATH
 from ..data import fetch_ticker_data
+from ..db import connect
 
 logger = logging.getLogger(__name__)
-
-
-@contextmanager
-def _conn() -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
 
 
 class Holding(BaseModel):
@@ -58,7 +44,7 @@ class PortfolioValuation(BaseModel):
 
 def init_holdings_db() -> None:
     """Create the holdings table if it doesn't exist yet; idempotent."""
-    with _conn() as c:
+    with connect() as c:
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS holdings (
@@ -73,7 +59,7 @@ def init_holdings_db() -> None:
 
 def list_holdings() -> list[Holding]:
     """All holdings, ordered by symbol."""
-    with _conn() as c:
+    with connect() as c:
         rows = c.execute("SELECT symbol, shares, avg_cost FROM holdings ORDER BY symbol").fetchall()
     return [Holding(symbol=r["symbol"], shares=r["shares"], avg_cost=r["avg_cost"]) for r in rows]
 
@@ -81,7 +67,7 @@ def list_holdings() -> list[Holding]:
 def upsert_holding(symbol: str, shares: float, avg_cost: float | None) -> None:
     """Insert or replace a holding's shares/avg_cost — overwrites, not a lot-level add."""
     sym = symbol.upper()
-    with _conn() as c:
+    with connect() as c:
         c.execute(
             """
             INSERT INTO holdings (symbol, shares, avg_cost, updated_at)
@@ -97,7 +83,7 @@ def upsert_holding(symbol: str, shares: float, avg_cost: float | None) -> None:
 
 def remove_holding(symbol: str) -> None:
     """Delete a holding by symbol; a no-op if it isn't held."""
-    with _conn() as c:
+    with connect() as c:
         c.execute("DELETE FROM holdings WHERE symbol = ?", (symbol.upper(),))
 
 
