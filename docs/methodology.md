@@ -141,10 +141,15 @@ Runs before every audit/re-critique call, independent of the LLM.
   ignores bare integers 0–10 and 4-digit years 1900–2100 (so counts and dates
   in free text aren't flagged as figures), and also skips any token
   immediately followed by `-K` or `-Q` (case-insensitive) so a "10-K"/"10-Q"
-  filing reference isn't parsed as the number 10.
+  filing reference isn't parsed as the number 10. It also skips numbers used
+  as period labels (`52-week`, `200 day`, `90d`, `52w`) or index-name prefixes
+  (`S&P 500`). Un-$'d whole-number magnitude shorthand such as `6M` is treated
+  as ambiguous and checked both as `6` and `6,000,000`; dollar amounts and
+  decimal magnitudes such as `$228B` or `1.06B` stay magnitude-only.
 - **Allowed set** — every number found in `fundamentals`, `quote`, SEC
-  financials, macro context, indicator scorecard values, and news *headlines*
-  (not article bodies, and never timestamps/URLs).
+  financials, macro context, indicator scorecard values, numbers parsed from
+  indicator keys/labels/details, and news *headlines* (not article bodies, and
+  never timestamps/URLs).
 - **The 2% rule** — a candidate number is "grounded" if its absolute magnitude
   is within 2% relative tolerance of *any* allowed number (sign is ignored;
   the check assumes direction is conveyed by surrounding words). A `%` token
