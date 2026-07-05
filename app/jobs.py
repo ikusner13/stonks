@@ -70,40 +70,41 @@ async def run_daily_jobs() -> dict:
         logger.exception("daily valuation/snapshot job failed")
         return {"snapshot": False, "alert": ""}
 
-    if not config.DRIFT_ALERT_ENABLED or not config.DISCORD_WEBHOOK_URL:
-        return {"snapshot": snapshot_recorded, "alert": ""}
-
-    plan = plan_rebalance(valuation, list_targets())
-    actionable = [item for item in plan.items if item.action != "hold"] if plan else []
-    if not actionable:
-        return {"snapshot": snapshot_recorded, "alert": ""}
-
-    current_symbols = {item.symbol for item in actionable}
-    stored = db.get_setting(LAST_DRIFT_ALERT_KEY)
-    if _symbol_set(stored) == current_symbols:
-        return {"snapshot": snapshot_recorded, "alert": ""}
-
-    today = datetime.now(UTC).date().isoformat()
-    dedupe_value = f"{today}:{','.join(sorted(current_symbols))}"
-    message = _alert_message(plan)
-
     try:
+        if not config.DRIFT_ALERT_ENABLED or not config.DISCORD_WEBHOOK_URL:
+            return {"snapshot": snapshot_recorded, "alert": ""}
+
+        plan = plan_rebalance(valuation, list_targets())
+        actionable = [item for item in plan.items if item.action != "hold"] if plan else []
+        if not actionable:
+            return {"snapshot": snapshot_recorded, "alert": ""}
+
+        current_symbols = {item.symbol for item in actionable}
+        stored = db.get_setting(LAST_DRIFT_ALERT_KEY)
+        if _symbol_set(stored) == current_symbols:
+            return {"snapshot": snapshot_recorded, "alert": ""}
+
+        today = datetime.now(UTC).date().isoformat()
+        dedupe_value = f"{today}:{','.join(sorted(current_symbols))}"
+        message = _alert_message(plan)
+
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.post(config.DISCORD_WEBHOOK_URL, json={"content": message})
             response.raise_for_status()
+
+        db.set_setting(LAST_DRIFT_ALERT_KEY, dedupe_value)
+        return {"snapshot": snapshot_recorded, "alert": message}
     except Exception:
         logger.exception("daily drift alert failed")
         return {"snapshot": snapshot_recorded, "alert": ""}
-
-    db.set_setting(LAST_DRIFT_ALERT_KEY, dedupe_value)
-    return {"snapshot": snapshot_recorded, "alert": message}
 
 
 async def daily_loop() -> None:
     """Sleep until the configured UTC hour and run daily jobs forever."""
     while True:
-        await asyncio.sleep(seconds_until_next(config.DAILY_JOB_HOUR_UTC, datetime.now(UTC)))
         try:
+            await asyncio.sleep(seconds_until_next(config.DAILY_JOB_HOUR_UTC, datetime.now(UTC)))
             await run_daily_jobs()
         except Exception:
             logger.exception("daily job loop iteration failed")
+            await asyncio.sleep(60)

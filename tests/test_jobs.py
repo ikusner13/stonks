@@ -163,6 +163,29 @@ async def test_run_daily_jobs_does_not_update_dedupe_when_webhook_fails(
     assert db.get_setting(jobs.LAST_DRIFT_ALERT_KEY) is None
 
 
+async def test_run_daily_jobs_returns_when_alert_planning_fails(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    posts: list[dict] = []
+
+    async def value_holdings() -> PortfolioValuation:
+        return _valuation()
+
+    def list_targets():
+        raise RuntimeError("target db unavailable")
+
+    monkeypatch.setattr(jobs, "value_holdings", value_holdings)
+    monkeypatch.setattr(jobs, "record_snapshot", lambda valuation: True)
+    monkeypatch.setattr(jobs, "list_targets", list_targets)
+    _install_http_recorder(monkeypatch, posts)
+
+    result = await jobs.run_daily_jobs()
+
+    assert result == {"snapshot": True, "alert": ""}
+    assert posts == []
+    assert db.get_setting(jobs.LAST_DRIFT_ALERT_KEY) is None
+
+
 async def test_run_daily_jobs_returns_without_alert_when_valuation_fails(
     monkeypatch: pytest.MonkeyPatch,
 ):
