@@ -14,6 +14,7 @@ from ..indicators.engine import compute_scorecard
 from ..profiles import select_profile
 from ..profiles.base import ProfileKey
 from ..schemas import ResearchResult
+from .budget import check_budget
 from .critic import ReviewMode, research_ticker_reviewed
 from .usage import annotate_run
 
@@ -53,6 +54,7 @@ async def research_ticker_cached(
     key = f"{sym}:{_trading_day()}:{mode}:{profile_override or 'auto'}"
 
     async def produce() -> dict:
+        check_budget()
         ticker = await fetch_ticker_data(sym, fresh=fresh)
         if ticker.quote is None and ticker.fundamentals.market_cap is None:
             raise InsufficientDataError(sym, ticker.sources)

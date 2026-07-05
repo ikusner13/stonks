@@ -1,0 +1,65 @@
+<div id="rebalance-panel">
+  {% if not has_targets %}
+  <p class="text-sm text-[var(--sea-ink-soft)]">Set target allocations to generate a rebalance plan.</p>
+  {% elif not plan %}
+  <p class="text-sm text-[var(--sea-ink-soft)]">Add priced holdings or cash before generating a rebalance plan.</p>
+  {% else %}
+  <div class="mb-4 grid gap-3 text-sm sm:grid-cols-3">
+    <div>
+      <div class="text-xs text-[var(--sea-ink-soft)]">Base value</div>
+      <div class="font-semibold tabular-nums">${{ plan.base_value | fmt_num }}</div>
+    </div>
+    <div>
+      <div class="text-xs text-[var(--sea-ink-soft)]">Cash now</div>
+      <div class="font-semibold tabular-nums">${{ plan.cash_now | fmt_num }}</div>
+    </div>
+    <div>
+      <div class="text-xs text-[var(--sea-ink-soft)]">Cash after plan</div>
+      <div class="font-semibold tabular-nums">${{ plan.cash_after | fmt_num }}</div>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-[var(--line)] text-xs text-[var(--sea-ink-soft)]">
+          <th class="pb-2 text-left font-medium">Symbol</th>
+          <th class="pb-2 text-right font-medium">Current</th>
+          <th class="pb-2 text-right font-medium">Target</th>
+          <th class="pb-2 text-right font-medium">Drift</th>
+          <th class="pb-2 text-right font-medium">Action</th>
+          <th class="pb-2 text-right font-medium">$ Amount</th>
+          <th class="pb-2 text-right font-medium">~Shares</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-[var(--line)]">
+        {% for item in plan.items %}
+        <tr>
+          <td class="py-3 pr-4 font-semibold">{{ item.symbol }}</td>
+          <td class="py-3 pr-4 text-right tabular-nums">{{ item.current_weight | pct }}</td>
+          <td class="py-3 pr-4 text-right tabular-nums">{{ item.target_weight | pct }}</td>
+          <td class="py-3 pr-4 text-right tabular-nums {% if item.drift > plan.threshold %}text-amber-500{% elif item.drift < -plan.threshold %}text-sky-500{% endif %}">
+            {{ '+' if item.drift >= 0 else '' }}{{ item.drift | pct }}
+          </td>
+          <td class="py-3 pr-4 text-right font-semibold uppercase">{{ item.action }}</td>
+          <td class="py-3 pr-4 text-right tabular-nums">
+            {{ '+' if item.delta_usd > 0 else '' }}${{ item.delta_usd | fmt_num }}
+          </td>
+          <td class="py-3 text-right tabular-nums">
+            {% if item.delta_shares is not none %}{{ item.delta_shares | fmt_num }}{% else %}<span class="text-[var(--sea-ink-soft)]">n/a</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mt-4 space-y-2 text-xs text-[var(--sea-ink-soft)]">
+    <p>Implicit cash target: <span class="font-semibold">{{ plan.cash_target_weight | pct }}</span>. Trades are held when drift is within {{ plan.threshold | pct }}.</p>
+    {% if plan.untargeted %}
+    <p>Untargeted holdings excluded from trades: {{ plan.untargeted | join(", ") }}.</p>
+    {% endif %}
+    <p>{{ ds_disclaimer }}</p>
+  </div>
+  {% endif %}
+</div>

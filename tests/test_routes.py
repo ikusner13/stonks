@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 
+from app import config, db
 from app.indicators.schemas import Indicator, IndicatorScorecard
 from app.llm.pipeline import InsufficientDataError
+from app.portfolio import holdings as holdings_mod
 from app.portfolio.decision_support import PositionSizeGuidance
 from app.portfolio.holdings import PortfolioValuation
 from app.portfolio.optimize import OptimizeResult, PortfolioMetrics
@@ -63,6 +65,8 @@ def _empty_valuation() -> PortfolioValuation:
         total_cost=0,
         total_unrealized_pl=0,
         total_unrealized_pl_pct=0,
+        cash=0.0,
+        total_with_cash=100_000,
         asof="2026-07-05T00:00:00Z",
     )
 
@@ -228,3 +232,25 @@ def test_optimizer_skips_when_fewer_than_two_symbols_remain(monkeypatch):
     assert "excluded from mean-variance optimization" in response.text
     assert "sample statistics on illiquid micro-caps are unreliable" in response.text
     assert "PENY:" in response.text
+
+
+def test_portfolio_cash_post_updates_cash_and_ignores_garbage(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "stocks.db")
+    db.init_db()
+    holdings_mod.init_holdings_db()
+    client = TestClient(web_app.app)
+
+    response = client.post("/portfolio/cash", data={"cash": "123.45"})
+
+    assert response.status_code == 200
+    assert db.get_cash() == 123.45
+    assert "Cash" in response.text
+    assert "$123.45" in response.text
+    assert "Total (incl. cash)" in response.text
+    assert "100.0%" in response.text
+
+    response = client.post("/portfolio/cash", data={"cash": "garbage"})
+
+    assert response.status_code == 200
+    assert db.get_cash() == 123.45
+    assert "$123.45" in response.text

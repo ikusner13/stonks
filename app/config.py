@@ -22,5 +22,7 @@ FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 WORKHORSE_MODEL = os.getenv("WORKHORSE_MODEL", "google/gemini-3.5-flash")
 PREMIUM_MODEL = os.getenv("PREMIUM_MODEL", "anthropic/claude-sonnet-4.6")
 
+DAILY_LLM_BUDGET_USD = float(os.getenv("DAILY_LLM_BUDGET_USD", "5"))  # 0 disables
+
 # SQLite store for the server-side watchlist / positions.
 DB_PATH = Path(os.getenv("STOCKS_DB_PATH", ROOT / "stocks.db"))

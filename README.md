@@ -4,9 +4,9 @@ An AI-aided equity research and portfolio decision-support tool. It fetches
 real market data, computes a deterministic indicator scorecard in code, and
 uses an LLM to turn that ground truth into a readable research report — with a
 skeptical critic pass and a programmatic fabrication check to catch invented
-numbers. A portfolio page adds mean-variance optimization, a historical
-allocation backtest, and plain-language decision-support signals (concentration,
-correlation, drift, position sizing).
+numbers. A portfolio page adds holdings and cash tracking, mean-variance
+optimization, a historical allocation backtest, and plain-language
+decision-support signals (concentration, correlation, drift, position sizing).
 
 **What this is not**: it does not place orders, hold custody of money, or give
 investment advice. Every number is either fetched from a real source or
@@ -37,6 +37,7 @@ uv run uvicorn app.web.app:app --reload --port 8000
 | Key | Required? | Unlocks | Degrades to, if unset |
 | --- | --- | --- | --- |
 | `OPENROUTER_API_KEY` | **Required** | All LLM calls (research, critic, discovery) via OpenRouter. | Research and discovery fail outright; the web app still starts and logs a startup warning. |
+| `DAILY_LLM_BUDGET_USD` | Optional | Daily UTC spend ceiling for new LLM runs; default `$5`, set `0` to disable. | Cached research reports still load, but uncached research and discovery are blocked once recorded spend reaches the limit. |
 | `FINNHUB_API_KEY` | Optional | Real-time US quotes and company news, preferred over Yahoo's when present. | Falls back to Yahoo Finance for quotes and news; the Finnhub source keys are simply absent from `sources` rather than marked `error`. |
 | `FRED_API_KEY` | Optional | Macro context (fed funds rate, CPI YoY, 10y treasury, unemployment, GDP growth) injected into the research prompt. | Macro is skipped entirely (`sources.macro = "disabled"`) — the report has no macro section rather than a stale or empty one. |
 | `SEC_IDENTITY` | Optional | The contact email SEC EDGAR requires for XBRL financials (revenue, margins, debt, FCF). | Financials still fetch, attributed to a hardcoded fallback address — set your own for real use. |
@@ -89,15 +90,20 @@ your saved holdings and watchlist entries are gone for good.
     independent premium audit.
 - **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
   any research report, and used to prefill the portfolio page.
-- **Portfolio** — holdings valuation, plus four decision-support panels:
+- **Portfolio** — holdings valuation, CSV holdings import, and dry-powder tracking, plus five
+  decision-support panels:
   - **Health**: concentration by top-1/3/5 holding weight, in plain language.
   - **Correlation**: pairwise return correlation flags holdings that move
     together — a source of hidden concentration position weights alone miss.
   - **Allocation backtest**: CAGR/Sharpe/Sortino/volatility/max-drawdown for
     your *current* weights held constant over history, against a benchmark.
+  - **Target allocations**: save your own target weights, adopt optimizer
+    weights as targets, and generate a deterministic rebalance plan using
+    holdings plus recorded cash as the base.
   - **Optimizer**: mean-variance optimal weights (max-Sharpe or min-risk) with
     an efficient frontier, current-vs-optimal drift signals, and confidence-
-    scaled position-sizing guidance for new candidates.
+    scaled position-sizing guidance for new candidates using holdings plus
+    recorded cash as the investable base.
 
 All of the above is deterministic and grounded in fetched or computed data —
 never advice, never an order.
@@ -114,8 +120,9 @@ Each research report makes several LLM calls; approximate per-report cost:
 Every LLM call's tokens, cache-read tokens, duration, and real USD cost (from
 OpenRouter usage accounting) are appended as one JSON line per run to
 `.cache/usage.jsonl`. Run `uv run stocks usage` for a rolling summary, or read
-the file directly. See [docs/operations.md](docs/operations.md) for the event
-shape.
+the file directly. `DAILY_LLM_BUDGET_USD` caps new paid runs by UTC day; cached
+reports are still served after the cap is reached. See
+[docs/operations.md](docs/operations.md) for the event shape.
 
 ## Test
 
@@ -131,10 +138,10 @@ app/
   data/        market data (yfinance quotes/fundamentals/news, Finnhub, SEC/EDGAR, FRED, screener)
   indicators/  deterministic indicator scorecard + confidence assessment
   llm/         Pydantic AI pipelines: research, critic, discovery, usage tracking
-  portfolio/   skfolio optimizer, holdings valuation, performance backtest, decision_support
+  portfolio/   holdings valuation, NAV snapshots, targets/rebalance, optimizer, backtest, decision_support
   web/         FastAPI app, Jinja2 templates, HTMX partials, static assets
   cache.py     file-based read-through KV (data/sec/macro/report/scorecard/correlation caches)
-  db.py        SQLite watchlist store
+  db.py        SQLite watchlist/settings store + shared connection helper
   schemas.py   Pydantic models / LLM structured-output contracts
   cli.py       Typer CLI
 docs/

@@ -12,35 +12,74 @@
     {# Live valuation table — refreshed after each add/remove #}
     {% include "partials/holdings_table.html" %}
 
-    {# Add position form #}
-    <form hx-post="/portfolio/holdings"
+    {# Cash balance form #}
+    <form hx-post="/portfolio/cash"
           hx-target="#holdings-table"
           hx-swap="outerHTML"
           hx-indicator="#holdings-spin"
-          class="mt-5"
-          id="add-holding-form">
+          class="mt-5">
       <div class="flex flex-wrap items-end gap-3">
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-[var(--sea-ink-soft)]">Symbol</label>
-          <input name="symbol" placeholder="AAPL" required
-            class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm uppercase" />
-        </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-xs text-[var(--sea-ink-soft)]">Shares</label>
-          <input name="shares" placeholder="10" inputmode="decimal" required
-            class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-        </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-xs text-[var(--sea-ink-soft)]">Avg Cost (optional)</label>
-          <input name="avg_cost" placeholder="150.00" inputmode="decimal"
+          <label class="text-xs text-[var(--sea-ink-soft)]">Cash</label>
+          <input name="cash" type="number" min="0" step="0.01" inputmode="decimal"
+            value="{{ '%.2f' | format(valuation.cash) }}"
             class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
         </div>
         <button type="submit"
           class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
-          Add / Update
+          Save Cash
         </button>
       </div>
     </form>
+
+    {# Add position form #}
+    <div class="mt-5 flex flex-wrap items-end gap-5">
+      <form hx-post="/portfolio/holdings"
+            hx-target="#holdings-table"
+            hx-swap="outerHTML"
+            hx-indicator="#holdings-spin"
+            id="add-holding-form">
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-[var(--sea-ink-soft)]">Symbol</label>
+            <input name="symbol" placeholder="AAPL" required
+              class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm uppercase" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-[var(--sea-ink-soft)]">Shares</label>
+            <input name="shares" placeholder="10" inputmode="decimal" required
+              class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-[var(--sea-ink-soft)]">Avg Cost (optional)</label>
+            <input name="avg_cost" placeholder="150.00" inputmode="decimal"
+              class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+          </div>
+          <button type="submit"
+            class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
+            Add / Update
+          </button>
+        </div>
+      </form>
+
+      <form hx-post="/portfolio/import"
+            hx-encoding="multipart/form-data"
+            hx-target="#holdings-table"
+            hx-swap="outerHTML"
+            hx-indicator="#holdings-spin">
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-[var(--sea-ink-soft)]">Import CSV</label>
+            <input name="file" type="file" accept=".csv,text/csv" required
+              class="max-w-64 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
+          </div>
+          <button type="submit"
+            class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
+            Upload
+          </button>
+        </div>
+      </form>
+    </div>
     <p id="holdings-spin" class="htmx-indicator mt-3 text-sm text-[var(--sea-ink-soft)]">Fetching prices…</p>
   </section>
 
@@ -61,7 +100,20 @@
     <p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ ds_disclaimer }}</p>
   </section>
 
-  {# ── C) Performance ───────────────────────────────────────────────────────── #}
+  {# ── C) NAV History ───────────────────────────────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="mb-4 text-lg font-semibold">NAV history</h2>
+    <div class="rounded-2xl border border-[var(--line)] p-5">
+      <div
+        hx-get="/portfolio/nav"
+        hx-trigger="load"
+        hx-swap="innerHTML">
+        <p class="text-sm text-[var(--sea-ink-soft)]">Loading NAV history…</p>
+      </div>
+    </div>
+  </section>
+
+  {# ── D) Performance ───────────────────────────────────────────────────────── #}
   <section class="mb-10">
     <h2 class="mb-4 text-lg font-semibold">Allocation backtest</h2>
     <div class="rounded-2xl border border-[var(--line)] p-5">
@@ -74,7 +126,29 @@
     </div>
   </section>
 
-  {# ── D) Optimizer & rebalancing signals ──────────────────────────────────── #}
+  {# ── E) Target allocations & rebalance plan ──────────────────────────────── #}
+  <section class="mb-10">
+    <h2 class="mb-1 text-lg font-semibold">Target Allocations</h2>
+    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Set your own target weights. Anything below 100% becomes an implicit cash target.</p>
+    <div
+      hx-get="/portfolio/targets"
+      hx-trigger="load"
+      hx-swap="outerHTML">
+      <p class="text-sm text-[var(--sea-ink-soft)]">Loading target allocations…</p>
+    </div>
+
+    <div class="mt-6 rounded-2xl border border-[var(--line)] p-5">
+      <h3 class="mb-3 text-sm font-semibold">Rebalance plan</h3>
+      <div
+        hx-get="/portfolio/rebalance"
+        hx-trigger="load, targets-changed from:body"
+        hx-swap="outerHTML">
+        <p class="text-sm text-[var(--sea-ink-soft)]">Loading rebalance plan…</p>
+      </div>
+    </div>
+  </section>
+
+  {# ── F) Optimizer & rebalancing signals ──────────────────────────────────── #}
   <section>
     <h2 class="mb-1 text-lg font-semibold">Optimizer &amp; Rebalancing Signals</h2>
     <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Mean-variance allocation seeded from your current holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>

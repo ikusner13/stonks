@@ -6,6 +6,7 @@ infra. Shared by the CLI and the web server. Port of the original lib/cache.ts.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -17,6 +18,7 @@ from .config import CACHE_DIR
 T = TypeVar("T")
 
 _UNSAFE = re.compile(r"[^a-zA-Z0-9._-]")
+_inflight: dict[str, tuple[asyncio.Lock, int]] = {}
 
 
 def _path_for(namespace: str, key: str) -> Path:
@@ -59,7 +61,23 @@ async def with_cache(
         cached = read_cache(namespace, key)
         if cached is not None:
             return cached, True
-    value = await produce()
-    if value is not None:
-        write_cache(namespace, key, value, ttl_ms)
-    return value, False
+
+    inflight_key = f"{namespace}:{key}"
+    lock, refcount = _inflight.get(inflight_key, (asyncio.Lock(), 0))
+    _inflight[inflight_key] = (lock, refcount + 1)
+    try:
+        async with lock:
+            if not fresh:
+                cached = read_cache(namespace, key)
+                if cached is not None:
+                    return cached, True
+            value = await produce()
+            if value is not None:
+                write_cache(namespace, key, value, ttl_ms)
+            return value, False
+    finally:
+        lock2, refcount2 = _inflight[inflight_key]
+        if refcount2 <= 1:
+            _inflight.pop(inflight_key, None)
+        else:
+            _inflight[inflight_key] = (lock2, refcount2 - 1)

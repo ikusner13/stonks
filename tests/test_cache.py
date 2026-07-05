@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import pytest
@@ -11,6 +12,7 @@ NS = "__pytest__"
 @pytest.fixture(autouse=True)
 def _cleanup():
     yield
+    cache._inflight.clear()
     import shutil
 
     shutil.rmtree(cache.CACHE_DIR / NS, ignore_errors=True)
@@ -74,3 +76,71 @@ async def test_none_result_is_not_cached():
     assert read_cache(NS, "none") is None
     assert await with_cache(NS, "none", 60_000, produce) == (None, False)
     assert calls == 2
+
+
+async def test_concurrent_same_key_single_flight_produces_once():
+    calls = 0
+
+    async def produce():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)
+        return {"answer": 42}
+
+    results = await asyncio.gather(
+        with_cache(NS, "single-flight", 60_000, produce),
+        with_cache(NS, "single-flight", 60_000, produce),
+    )
+
+    assert results == [({"answer": 42}, False), ({"answer": 42}, True)]
+    assert calls == 1
+    assert cache._inflight == {}
+
+
+async def test_concurrent_different_keys_do_not_serialize():
+    active = 0
+    max_active = 0
+    calls: list[str] = []
+
+    def make_produce(name: str):
+        async def produce():
+            nonlocal active, max_active
+            calls.append(name)
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+            return name
+
+        return produce
+
+    results = await asyncio.gather(
+        with_cache(NS, "key-a", 60_000, make_produce("a")),
+        with_cache(NS, "key-b", 60_000, make_produce("b")),
+    )
+
+    assert results == [("a", False), ("b", False)]
+    assert sorted(calls) == ["a", "b"]
+    assert max_active == 2
+    assert cache._inflight == {}
+
+
+async def test_concurrent_produce_exception_is_not_cached_and_cleans_inflight():
+    calls = 0
+
+    async def produce():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)
+        raise RuntimeError("boom")
+
+    results = await asyncio.gather(
+        with_cache(NS, "raises", 60_000, produce),
+        with_cache(NS, "raises", 60_000, produce),
+        return_exceptions=True,
+    )
+
+    assert all(isinstance(result, RuntimeError) for result in results)
+    assert calls == 2
+    assert read_cache(NS, "raises") is None
+    assert cache._inflight == {}

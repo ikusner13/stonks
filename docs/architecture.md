@@ -35,16 +35,18 @@ line to `.cache/usage.jsonl` when the `with_run` context exits. Imports
 
 **`app/portfolio/`** — Everything that isn't single-ticker research.
 `holdings.py` owns the SQLite-backed positions table and live valuation.
+`snapshots.py` owns the SQLite-backed daily NAV history and the server-computed
+series model used by the equity-curve partial.
 `history.py` is the shared price-history fetch + cleaning helper
 (`fetch_price_history`, `drop_short_history`) used by both `performance.py`
 (the allocation backtest, via `quantstats_lumi`) and `optimize.py` (mean-variance
-optimization via `skfolio`). `decision_support.py` sits on top of all three —
-portfolio health, drift, position sizing, and correlation — and is pure/
-deterministic itself, taking already-fetched valuations and optimizer results
-rather than fetching anything new (except its own correlation fetch, which
-reuses `performance.py`'s `_fetch_returns` via a local import inside the
-function body to avoid a module-level cycle). Imports `app.config`, `app.data`,
-`app.schemas`.
+optimization via `skfolio`). `plan.py` owns user target allocations and the
+deterministic rebalance plan. `decision_support.py` sits on top of these pieces
+for portfolio health, optimizer drift, position sizing, and correlation; the
+health/drift/sizing helpers are pure over already-computed inputs, while
+correlation fetches its own return history and reuses `performance.py`'s
+`_fetch_returns` via a local import inside the function body to avoid a
+module-level cycle. Imports `app.config`, `app.data`, `app.schemas`.
 
 **`app/web/`** — The FastAPI app (`app.py`), Jinja2 templates, and static
 assets. Owns no domain logic — every route is a thin composition of calls into
@@ -54,10 +56,15 @@ filters (`fmt_num`, `fmt_cap`, `pct`). Imports nearly everything else in `app/`.
 **`app/cache.py`** — The one dependency-light file-cache primitive
 (`read_cache`/`write_cache`/`with_cache`) every namespace in §3 is built on.
 No external dependency (no Redis/SQLite) — one JSON file per key under
-`.cache/<namespace>/`.
+`.cache/<namespace>/`. Concurrent in-process misses for the same namespace/key
+are coalesced with a per-key async lock, so only the first caller runs the
+expensive producer and later waiters re-check the file cache before returning.
 
 **`app/db.py`** — The watchlist table (separate from `portfolio/holdings.py`'s
-holdings table, though both live in the same SQLite file at `STOCKS_DB_PATH`).
+holdings table, though both live in the same SQLite file at `STOCKS_DB_PATH`)
+plus the shared SQLite connection helper. Each connection reads
+`app.config.DB_PATH` lazily, enables WAL, sets a 5s busy timeout, commits on
+success, and closes immediately.
 
 **`app/schemas.py`** — All Pydantic contracts shared across modules
 (`TickerData`, `TickerReport`, `Critique`, `ResearchResult`, discovery models).
@@ -105,7 +112,8 @@ forward references those imports satisfy.
    mean the price is always freshly fetched — to find this symbol's current
    portfolio weight, if held.
 5. `suggest_position_size` computes a sizing band from the effective
-   confidence, portfolio total value, and current weight.
+   confidence, `valuation.total_with_cash` (holdings value plus recorded cash),
+   and the symbol's current securities-only weight when already held.
 6. Renders `partials/research_report.html` with the result, mode, watchlist
    state, and sizing guidance.
 7. `InsufficientDataError` → a "no market data found" error partial.
@@ -114,44 +122,66 @@ forward references those imports satisfy.
    `fresh` values — it is not forced to `fresh=1`; a request made without
    `fresh` retries the same, cache-eligible way.
 
-### (b) The portfolio page and its four HTMX panels
+### (b) The portfolio page and its HTMX panels
 
 `GET /portfolio` renders the page shell synchronously: `value_holdings()`
 (always recomputed — though each holding's price is subject to the 15-minute
-`data` cache, so this isn't a guaranteed-fresh network fetch), `assess_portfolio_health`
+`data` cache, so this isn't a guaranteed-fresh network fetch), opportunistically
+records a daily NAV snapshot from that valuation, `assess_portfolio_health`
 computed inline from that valuation, and the holdings table — all present in
-the initial HTML. Three of the four panels below are then loaded
-independently:
+the initial HTML. Snapshot writes are wrapped in `try/except` with a warning log,
+so history storage can never break page rendering. The remaining panels and
+forms are then loaded or submitted independently:
 
-- **A) Holdings** — rendered inline on page load (no HTMX round-trip needed
-  for the initial view). Add/remove (`POST /portfolio/holdings`,
-  `POST /portfolio/holdings/remove/{symbol}`) each re-run `value_holdings()`
-  and swap in a fresh `holdings_table` partial.
+- **A) Holdings, cash, and CSV import** — rendered inline on page load (no HTMX
+  round-trip needed for the initial view). Add/remove (`POST /portfolio/holdings`,
+  `POST /portfolio/holdings/remove/{symbol}`), cash updates (`POST /portfolio/cash`),
+  and CSV import (`POST /portfolio/import`) each re-run `value_holdings()` and
+  swap in a fresh `holdings_table` partial.
 - **B) Health & correlation** — health is computed inline (part of the initial
   page render, no fetch of its own). Correlation is lazy:
   `hx-get="/portfolio/correlation" hx-trigger="load"` fires immediately after
   page load, calling `compute_correlation_insight` (its own `correlation`-cache,
   §3) and swapping in `partials/portfolio_correlation.html`.
-- **C) Allocation backtest** — also lazy-loaded on `hx-trigger="load"`:
+- **C) NAV history** — lazy-loaded on `hx-trigger="load"`:
+  `GET /portfolio/nav` reads the last 365 daily snapshots from SQLite, computes
+  deltas against the previous and first snapshots, and renders an SVG polyline
+  string for a `600x120` viewBox in `partials/nav_history.html`. With fewer than
+  two points, no polyline is produced.
+- **D) Allocation backtest** — also lazy-loaded on `hx-trigger="load"`:
   `GET /portfolio/performance` recomputes `value_holdings()` again (independent
   of the page-load call, same 15-minute price-cache caveat) and calls
   `compute_performance` with the resulting weights.
-- **D) Optimizer & drift** — the only panel that isn't `hx-trigger="load"`; it
+- **E) Target allocations & rebalance** — `GET /portfolio/targets` lazy-loads
+  the editable target-weight form, including held symbols that do not yet have
+  target rows and the implicit cash target. `POST /portfolio/targets` fully
+  replaces the stored target rows after validation and emits `HX-Trigger:
+  targets-changed`. `POST /portfolio/targets/adopt` uses optimizer weights as
+  targets. `GET /portfolio/rebalance` listens for page load and that trigger,
+  recomputes `value_holdings()`, and calls `plan_rebalance()` using
+  `total_with_cash` as the base.
+- **F) Optimizer & drift** — the only panel that isn't `hx-trigger="load"`; it
   fires on form submit (`POST /portfolio/optimize`), seeding from the submitted
   rows or, if the form is empty, from current holdings. `optimize()` runs in a
   worker thread (`anyio.to_thread.run_sync`, since `skfolio`/`numpy` there are
   synchronous and CPU-bound), then `analyze_drift` compares the result's
   current-vs-optimal weights before rendering `partials/portfolio_results.html`.
 
-Every one of B/C/D wraps its handler in try/except, logging the full
-traceback and returning `partials/error.html` with a retry URL pointing back
-at itself on failure — a failed panel never takes down the rest of the page.
+The independent portfolio panel routes wrap their real work in try/except where
+generic failures are expected, logging the full traceback and returning
+`partials/error.html` with a retry URL where retrying makes sense — a failed
+panel never takes down the rest of the page.
 
 ## Caching table
 
 All namespaces share `app/cache.py`'s file-based read-through cache: one JSON
 file per key at `.cache/<namespace>/<sanitized-key>.json`, holding
 `{"expiresAt": <epoch ms or 0>, "value": <payload>}`.
+`with_cache()` also coalesces concurrent in-process misses for the same
+namespace/key: waiters serialize behind the first producer, then re-read the
+cache so duplicate LLM calls or market-data downloads are avoided when the
+first producer succeeds. `fresh=True` skips the initial read but still uses the
+same lock, and exceptions still propagate without writing a cache entry.
 
 | Namespace | Key shape | TTL | Negative-caching semantics |
 | --- | --- | --- | --- |
@@ -166,15 +196,30 @@ file per key at `.cache/<namespace>/<sanitized-key>.json`, holding
 the read side of `with_cache` unconditionally — it still writes the fresh
 result back afterward, refreshing the TTL.
 
+## SQLite storage table
+
+All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
+`app/db.py::connect()`.
+
+| Table | Owner | Purpose |
+| --- | --- | --- |
+| `watchlist` | `app/db.py` | User watchlist symbols plus optional position values. |
+| `settings` | `app/db.py` | Single-user key/value settings, currently including recorded cash. |
+| `holdings` | `app/portfolio/holdings.py` | Current position rows keyed by symbol: shares and optional average cost. |
+| `targets` | `app/portfolio/plan.py` | User-owned target allocation rows keyed by symbol; weights are stored as fractions. |
+| `nav_snapshots` | `app/portfolio/snapshots.py` | One opportunistic NAV row per UTC day: securities value, cash, total NAV, cost, and unrealized P&L. |
+
 ## Error-handling conventions
 
-- **Error partials over 500s.** Every web route that does real work (research,
-  discover, portfolio correlation/performance/tearsheet) wraps its body in
-  try/except. On failure it logs the full traceback via `logger.exception`
-  and returns a rendered `partials/error.html` fragment — HTMX swaps this into
-  the panel's target, so the rest of the page stays intact. The user sees a
-  short message ("X failed — see server logs") and, where it makes sense, a
-  retry link; never a raw stack trace or a bare 500.
+- **Error partials over 500s.** Most web routes that do real work (research,
+  discover, portfolio import, targets, rebalance, NAV, correlation, performance,
+  and tearsheet) catch expected or generic failures and return a rendered
+  `partials/error.html` fragment — HTMX swaps this into the panel's target, so
+  the rest of the page stays intact. Generic failures in those routes log the
+  full traceback via `logger.exception`; validation-style failures return a
+  clear message without a stack trace. The user sees a short message ("X failed
+  — see server logs") and, where it makes sense, a retry link; never a raw stack
+  trace or a bare 500.
   **`POST /portfolio/optimize` is the one exception to this pattern**: it
   catches `NoDataError` and generic `Exception` separately, but neither branch
   calls `logger.exception` (so a failure here leaves no server-side traceback),
@@ -216,10 +261,10 @@ result back afterward, refreshing the TTL.
 - Pydantic AI's `agent.run()` calls are natively async (httpx under the hood)
   and need no thread offload.
 - **SQLite is connection-per-call, always synchronous, never offloaded to a
-  thread.** Both `app/db.py` (watchlist) and `app/portfolio/holdings.py`
-  (holdings) open a fresh `sqlite3.connect(DB_PATH)` per function call via a
-  `contextmanager`, commit, and close — no pooling, no async driver. Several
-  of these calls (e.g. `list_holdings()` inside the `async def value_holdings`)
+  thread.** `app/db.py::connect()` opens a fresh `sqlite3.connect(config.DB_PATH)`
+  per function call, configures WAL plus `busy_timeout=5000`, commits, and
+  closes — no pooling, no async driver. Several of these calls (e.g.
+  `list_holdings()` inside the `async def value_holdings`)
   run inline inside an `async def` without `to_thread`, meaning they briefly
   block the event loop. At this app's actual scale (single user, local SQLite
   file) that's a non-issue in practice, but it is a real inconsistency with

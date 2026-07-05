@@ -6,16 +6,21 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from csv import Error as CsvError
+from csv import reader as csv_reader
+from io import StringIO
+from math import isfinite
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Form, Query, Request
+from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db
 from ..config import OPENROUTER_API_KEY
+from ..llm.budget import BudgetExceededError
 from ..llm.discovery import discover_ideas
 from ..llm.pipeline import InsufficientDataError, research_ticker_cached
 from ..llm.usage import format_event, with_run
@@ -38,7 +43,20 @@ from ..portfolio.holdings import (
     value_holdings,
 )
 from ..portfolio.optimize import Holding, NoDataError, OptimizeRequest, optimize
+from ..portfolio.plan import (
+    Target,
+    init_targets_db,
+    list_targets,
+    plan_rebalance,
+    set_targets,
+)
 from ..portfolio.performance import compute_performance, tearsheet_html
+from ..portfolio.snapshots import (
+    build_nav_series,
+    init_snapshots_db,
+    list_snapshots,
+    record_snapshot,
+)
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -62,6 +80,9 @@ OPTIMIZER_EXCLUSION_WARNING = (
     "excluded from mean-variance optimization: sample statistics on illiquid micro-caps "
     "are unreliable"
 )
+
+MAX_IMPORT_BYTES = 100 * 1024
+MAX_IMPORT_ROWS = 500
 
 
 # --- Jinja filters ----------------------------------------------------------
@@ -145,6 +166,8 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 db.init_db()  # idempotent; ensures the watchlist table exists before first request
 init_holdings_db()  # idempotent; ensures the holdings table exists before first request
+init_snapshots_db()  # idempotent; ensures the NAV history table exists before first request
+init_targets_db()  # idempotent; ensures target allocations exist before first request
 
 
 # --- Discover ---------------------------------------------------------------
@@ -176,6 +199,12 @@ async def discover(request: Request, goal: str = Form("")):
         watched = {i.symbol for i in db.list_items()}
         return templates.TemplateResponse(
             request, "partials/candidates.html", {"result": result, "watched_symbols": watched}
+        )
+    except BudgetExceededError as e:
+        return _error_partial(
+            request,
+            f"Daily LLM budget reached (${e.spent:.2f} of ${e.limit:.2f}). "
+            "Resets at midnight UTC; cached reports still load.",
         )
     except Exception:
         logger.exception("discover failed")
@@ -226,7 +255,7 @@ async def research_report(
         result_profile = PROFILES[result.profile]
         adv_dollars = _scorecard_indicator_value(result, "avg_dollar_volume_20d")
         sizing = suggest_position_size(
-            valuation.total_value,
+            valuation.total_with_cash,
             effective,
             symbol=sym,
             current_weight=current_weight,
@@ -244,6 +273,12 @@ async def research_report(
                 "profile_label": result_profile.label,
                 "profile_override": profile,
             },
+        )
+    except BudgetExceededError as e:
+        return _error_partial(
+            request,
+            f"Daily LLM budget reached (${e.spent:.2f} of ${e.limit:.2f}). "
+            "Resets at midnight UTC; cached reports still load.",
         )
     except InsufficientDataError:
         logger.exception("research failed: insufficient data for %s", sym)
@@ -291,6 +326,10 @@ def watchlist_remove(symbol: str):
 @app.get("/portfolio", response_class=HTMLResponse)
 async def portfolio_page(request: Request):
     valuation = await value_holdings()
+    try:
+        record_snapshot(valuation)
+    except Exception:
+        logger.warning("nav snapshot write failed", exc_info=True)
     optimizer_rows = [
         {
             "symbol": v.symbol,
@@ -358,6 +397,243 @@ async def portfolio_holdings_remove(request: Request, symbol: str):
     return templates.TemplateResponse(
         request, "partials/holdings_table.html", {"valuation": valuation}
     )
+
+
+@app.post("/portfolio/cash", response_class=HTMLResponse)
+async def portfolio_cash_set(request: Request, cash: str = Form("")):
+    try:
+        db.set_cash(float(cash))
+    except (TypeError, ValueError):
+        pass
+    valuation = await value_holdings()
+    return templates.TemplateResponse(
+        request, "partials/holdings_table.html", {"valuation": valuation}
+    )
+
+
+@app.post("/portfolio/import", response_class=HTMLResponse)
+async def portfolio_import(request: Request, file: UploadFile = File(...)):
+    raw = await file.read()
+    if len(raw) > MAX_IMPORT_BYTES:
+        return _error_partial(request, "CSV import failed: file must be 100 KB or smaller.")
+
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return _error_partial(request, "CSV import failed: file must be UTF-8 encoded.")
+
+    try:
+        rows = list(csv_reader(StringIO(text)))
+    except CsvError:
+        return _error_partial(request, "CSV import failed: unable to parse CSV.")
+
+    if not rows:
+        return _error_partial(request, "CSV import failed: header row is required.")
+
+    header = [col.strip().lower() for col in rows[0]]
+    column_map = {name: index for index, name in enumerate(header) if name}
+    if "symbol" not in column_map or "shares" not in column_map:
+        return _error_partial(
+            request, "CSV import failed: header must include symbol and shares columns."
+        )
+
+    data_rows = rows[1:]
+    if len(data_rows) > MAX_IMPORT_ROWS:
+        return _error_partial(request, "CSV import failed: maximum 500 data rows allowed.")
+
+    imported = 0
+    skipped: list[str] = []
+    symbol_index = column_map["symbol"]
+    shares_index = column_map["shares"]
+    avg_cost_index = column_map.get("avg_cost")
+
+    for line_number, row in enumerate(data_rows, start=2):
+        if not any(cell.strip() for cell in row):
+            continue
+
+        symbol = row[symbol_index].strip().upper() if symbol_index < len(row) else ""
+        if not symbol:
+            skipped.append(f"line {line_number}: missing symbol")
+            continue
+
+        raw_shares = row[shares_index].strip() if shares_index < len(row) else ""
+        try:
+            shares = float(raw_shares)
+        except ValueError:
+            skipped.append(f"line {line_number}: bad shares '{raw_shares}'")
+            continue
+        if shares <= 0 or not isfinite(shares):
+            skipped.append(f"line {line_number}: shares must be > 0")
+            continue
+
+        avg_cost: float | None = None
+        if avg_cost_index is not None and avg_cost_index < len(row):
+            raw_avg_cost = row[avg_cost_index].strip()
+            if raw_avg_cost:
+                try:
+                    avg_cost = float(raw_avg_cost)
+                except ValueError:
+                    avg_cost = None
+                if avg_cost is not None and not isfinite(avg_cost):
+                    avg_cost = None
+
+        upsert_holding(symbol, shares, avg_cost)
+        imported += 1
+
+    valuation = await value_holdings()
+    return templates.TemplateResponse(
+        request,
+        "partials/holdings_table.html",
+        {
+            "valuation": valuation,
+            "import_summary": {"imported": imported, "skipped": skipped},
+        },
+    )
+
+
+def _parse_target_form(symbols: list[str], weights_pct: list[str]) -> list[Target]:
+    targets: list[Target] = []
+    for raw_symbol, raw_weight in zip(symbols, weights_pct):
+        symbol = (raw_symbol or "").strip()
+        weight = (raw_weight or "").strip()
+        if not symbol or not weight:
+            continue
+        try:
+            target_weight = float(weight) / 100
+        except ValueError as exc:
+            raise ValueError(f"{symbol.upper()} weight must be a number") from exc
+        targets.append(Target(symbol=symbol, target_weight=target_weight))
+    return targets
+
+
+def _parse_adopt_form(symbols: list[str], weights: list[str]) -> list[Target]:
+    targets: list[Target] = []
+    for raw_symbol, raw_weight in zip(symbols, weights):
+        symbol = (raw_symbol or "").strip()
+        if not symbol:
+            continue
+        try:
+            target_weight = float(raw_weight)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{symbol.upper()} weight must be a number") from exc
+        targets.append(Target(symbol=symbol, target_weight=target_weight))
+    return targets
+
+
+async def _targets_context() -> dict:
+    targets = list_targets()
+    valuation = await value_holdings()
+    target_map = {target.symbol: target.target_weight for target in targets}
+    rows = [
+        {"symbol": target.symbol, "weight_pct": target.target_weight * 100}
+        for target in targets
+    ]
+    rows.extend(
+        {"symbol": holding.symbol, "weight_pct": None}
+        for holding in valuation.holdings
+        if holding.symbol not in target_map
+    )
+    if not rows:
+        rows.append({"symbol": "", "weight_pct": None})
+    total_target = sum(target_map.values())
+    return {
+        "targets": targets,
+        "rows": rows,
+        "implicit_cash_weight": max(0.0, 1.0 - total_target),
+    }
+
+
+@app.get("/portfolio/targets", response_class=HTMLResponse)
+async def portfolio_targets(request: Request):
+    try:
+        return templates.TemplateResponse(
+            request, "partials/targets_form.html", await _targets_context()
+        )
+    except Exception:
+        logger.exception("portfolio targets failed")
+        return _error_partial(
+            request, "Target allocations failed — see server logs.", "/portfolio/targets"
+        )
+
+
+@app.post("/portfolio/targets", response_class=HTMLResponse)
+async def portfolio_targets_set(request: Request):
+    form = await request.form()
+    try:
+        targets = _parse_target_form(
+            list(form.getlist("symbol[]")),
+            list(form.getlist("weight_pct[]")),
+        )
+        set_targets(targets)
+        response = templates.TemplateResponse(
+            request, "partials/targets_form.html", await _targets_context()
+        )
+        response.headers["HX-Trigger"] = "targets-changed"
+        return response
+    except ValueError as e:
+        return _error_partial(request, str(e))
+    except Exception:
+        logger.exception("portfolio targets update failed")
+        return _error_partial(request, "Target update failed — see server logs.")
+
+
+@app.post("/portfolio/targets/adopt", response_class=HTMLResponse)
+async def portfolio_targets_adopt(request: Request):
+    form = await request.form()
+    try:
+        targets = _parse_adopt_form(
+            list(form.getlist("symbol[]")),
+            list(form.getlist("weight[]")),
+        )
+        set_targets(targets)
+        response = templates.TemplateResponse(
+            request, "partials/targets_form.html", await _targets_context()
+        )
+        response.headers["HX-Trigger"] = "targets-changed"
+        return response
+    except ValueError as e:
+        return _error_partial(request, str(e))
+    except Exception:
+        logger.exception("portfolio optimizer target adoption failed")
+        return _error_partial(request, "Target adoption failed — see server logs.")
+
+
+@app.get("/portfolio/rebalance", response_class=HTMLResponse)
+async def portfolio_rebalance(request: Request):
+    try:
+        targets = list_targets()
+        valuation = await value_holdings()
+        plan = plan_rebalance(valuation, targets)
+        return templates.TemplateResponse(
+            request,
+            "partials/rebalance_plan.html",
+            {
+                "plan": plan,
+                "has_targets": bool(targets),
+                "ds_disclaimer": DS_DISCLAIMER,
+            },
+        )
+    except Exception:
+        logger.exception("portfolio rebalance failed")
+        return _error_partial(
+            request, "Rebalance plan failed — see server logs.", "/portfolio/rebalance"
+        )
+
+
+@app.get("/portfolio/nav", response_class=HTMLResponse)
+async def portfolio_nav(request: Request):
+    try:
+        series = build_nav_series(list_snapshots())
+        return templates.TemplateResponse(
+            request,
+            "partials/nav_history.html",
+            {"series": series, "recent": list(reversed(series.points[-10:]))},
+        )
+    except Exception:
+        logger.exception("portfolio nav history failed")
+        return _error_partial(
+            request, "Portfolio NAV history failed — see server logs.", "/portfolio/nav"
+        )
 
 
 @app.get("/portfolio/correlation", response_class=HTMLResponse)

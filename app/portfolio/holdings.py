@@ -4,28 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
-from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Iterator
 
 from pydantic import BaseModel, Field
 
-from ..config import DB_PATH
+from .. import db
 from ..data import fetch_ticker_data
+from ..db import connect
 
 logger = logging.getLogger(__name__)
-
-
-@contextmanager
-def _conn() -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
 
 
 class Holding(BaseModel):
@@ -54,11 +41,14 @@ class PortfolioValuation(BaseModel):
     total_unrealized_pl_pct: float
     asof: str
     unpriced_symbols: list[str] = Field(default_factory=list)
+    cash: float = 0.0
+    total_with_cash: float = 0.0
+    cash_pct: float = 0.0
 
 
 def init_holdings_db() -> None:
     """Create the holdings table if it doesn't exist yet; idempotent."""
-    with _conn() as c:
+    with connect() as c:
         c.execute(
             """
             CREATE TABLE IF NOT EXISTS holdings (
@@ -73,7 +63,7 @@ def init_holdings_db() -> None:
 
 def list_holdings() -> list[Holding]:
     """All holdings, ordered by symbol."""
-    with _conn() as c:
+    with connect() as c:
         rows = c.execute("SELECT symbol, shares, avg_cost FROM holdings ORDER BY symbol").fetchall()
     return [Holding(symbol=r["symbol"], shares=r["shares"], avg_cost=r["avg_cost"]) for r in rows]
 
@@ -81,7 +71,7 @@ def list_holdings() -> list[Holding]:
 def upsert_holding(symbol: str, shares: float, avg_cost: float | None) -> None:
     """Insert or replace a holding's shares/avg_cost — overwrites, not a lot-level add."""
     sym = symbol.upper()
-    with _conn() as c:
+    with connect() as c:
         c.execute(
             """
             INSERT INTO holdings (symbol, shares, avg_cost, updated_at)
@@ -97,7 +87,7 @@ def upsert_holding(symbol: str, shares: float, avg_cost: float | None) -> None:
 
 def remove_holding(symbol: str) -> None:
     """Delete a holding by symbol; a no-op if it isn't held."""
-    with _conn() as c:
+    with connect() as c:
         c.execute("DELETE FROM holdings WHERE symbol = ?", (symbol.upper(),))
 
 
@@ -106,8 +96,10 @@ async def value_holdings() -> PortfolioValuation:
     unpriced symbols are listed but contribute nothing to the totals."""
     holdings = list_holdings()
     asof = datetime.now(UTC).isoformat()
+    cash = db.get_cash()
 
     if not holdings:
+        total_with_cash = cash
         return PortfolioValuation(
             holdings=[],
             total_value=0.0,
@@ -116,6 +108,9 @@ async def value_holdings() -> PortfolioValuation:
             total_unrealized_pl_pct=0.0,
             asof=asof,
             unpriced_symbols=[],
+            cash=cash,
+            total_with_cash=total_with_cash,
+            cash_pct=(cash / total_with_cash) if total_with_cash > 0 else 0.0,
         )
 
     async def fetch_price(symbol: str) -> float | None:
@@ -176,6 +171,7 @@ async def value_holdings() -> PortfolioValuation:
             v.weight = v.market_value / total_value
 
     total_unrealized_pl_pct = (total_unrealized_pl / total_cost) if total_cost != 0 else 0.0
+    total_with_cash = total_value + cash
 
     return PortfolioValuation(
         holdings=valuations,
@@ -185,4 +181,7 @@ async def value_holdings() -> PortfolioValuation:
         total_unrealized_pl_pct=total_unrealized_pl_pct,
         asof=asof,
         unpriced_symbols=unpriced_symbols,
+        cash=cash,
+        total_with_cash=total_with_cash,
+        cash_pct=(cash / total_with_cash) if total_with_cash > 0 else 0.0,
     )

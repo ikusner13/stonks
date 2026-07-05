@@ -5,6 +5,7 @@
 | Var | Required? | Effect | Failure mode when absent |
 | --- | --- | --- | --- |
 | `OPENROUTER_API_KEY` | **Required** for research/discover | Auth for every LLM call (research, critic, discovery) via OpenRouter. | The web app starts anyway (`LLM_CONFIGURED=False` logs a startup warning and is passed to templates to show a disabled state). The first LLM call raises `RuntimeError("OPENROUTER_API_KEY is not set...")` lazily — web routes catch it as a generic exception and show an error partial; the CLI has no such guard and will print the raw traceback. |
+| `DAILY_LLM_BUDGET_USD` | Optional (default `5`; `0` disables) | Stops new paid LLM runs once today's UTC `usage.jsonl` spend is at or above this amount. | Cached research reports still load because the guard only runs inside cache misses. Uncached research and discovery show a budget error in the web app; CLI commands raise the same guard exception. |
 | `FINNHUB_API_KEY` | Optional | Preferred quote/news source over Yahoo when set. | Finnhub calls are skipped entirely (not attempted, not marked `error` — they simply produce no `sources` entry). Quote/news fall back to Yahoo. |
 | `FRED_API_KEY` | Optional | Enables macro context (fed funds, CPI YoY, 10y treasury, unemployment, GDP growth). | `sources.macro = "disabled"`; `TickerData.macro` stays `None`; the report has no macro section rather than an empty one. |
 | `SEC_IDENTITY` | Optional | Contact email SEC EDGAR requires for XBRL financials. | Falls back to a hardcoded address in `app/data/sec.py`; financials still fetch normally — set your own for anything beyond local use. |
@@ -48,7 +49,31 @@ for research, re-pays the LLM cost for anything requested that trading day).
 LOG_LEVEL=DEBUG uv run uvicorn app.web.app:app --reload --port 8000
 ```
 
+## Portfolio CSV import
+
+The portfolio page accepts holdings CSV uploads up to 100 KB and 500 data rows.
+The header row is required; `symbol` and `shares` are required columns,
+`avg_cost` is optional, and extra columns are ignored. Headers are
+case-insensitive and UTF-8 BOMs are tolerated.
+
+```csv
+symbol,shares,avg_cost
+AAPL,10,150.25
+MSFT,4,
+```
+
+Symbols are uppercased before saving. `shares` must be a positive number;
+blank or unparseable `avg_cost` values are saved as empty. Bad data rows are
+reported with line numbers and do not block valid rows from importing.
+
 ## Cost & usage
+
+`DAILY_LLM_BUDGET_USD` is the daily cost control for personal use. The guard
+sums `totals.cost_usd` from usage events whose timestamps start with today's
+UTC date and checks that total before a new LLM run starts. A run that crosses
+the limit mid-flight is allowed to finish and record usage; the next uncached
+research or discovery request is blocked until UTC midnight. Cached research
+reports bypass the guard entirely and continue to load at zero LLM cost.
 
 Every research/discover run appends one JSON line to `.cache/usage.jsonl`
 (`app/llm/usage.py::_emit`):

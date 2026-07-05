@@ -311,16 +311,20 @@ what the data supports — never up.
 
 **Position sizing** (`app/portfolio/decision_support.py::suggest_position_size`)
 maps the final confidence to the active profile's starting-size band (§3), as
-a fraction of total portfolio value. If the symbol is already held, the
-existing weight is treated as consumed headroom within the band: the suggested
-dollar range narrows to `band − current_weight` (floored at 0), and if the
-current weight already meets or exceeds the band's high end, the guidance
-switches to "already at band — adding would increase concentration."
+a fraction of investable portfolio value. The web research page passes holdings
+value plus recorded cash (`total_with_cash`) as that base, so dry powder counts
+when estimating a new position's dollar range.
 
 For profiles with liquidity sizing, the web route passes the
 `avg_dollar_volume_20d` indicator value into `suggest_position_size` as
 `adv_dollars`. The cap formula is exactly:
 `liquidity_cap_dollars = adv_dollars * max_participation * max_days_to_exit`.
+
+If the symbol is already held, the existing securities-only weight is treated
+as consumed headroom within the band: the suggested dollar range narrows to
+`band − current_weight` (floored at 0), and if the current weight already
+meets or exceeds the band's high end, the guidance switches to "already at
+band — adding would increase concentration."
 
 ## 6. Portfolio math
 
@@ -338,6 +342,74 @@ are what the Health and Allocation Backtest panels consume; Correlation
 instead takes the raw holdings symbol list and fetches its own independent
 return history, without reference to weight at all.
 
+Cash is stored separately in SQLite settings as a single non-negative dollar
+amount. `value_holdings` exposes it as `cash`, `total_with_cash`
+(`total_value + cash`), and `cash_pct` (`cash / total_with_cash` when positive).
+These fields do **not** change `total_value` or per-holding `weight`, so the
+Health, Correlation, Allocation Backtest, and Optimizer panels keep their
+existing securities-only allocation semantics.
+
+**Target allocations & rebalance plan** (`app/portfolio/plan.py`). User target
+weights are stored as fractions (`0.25` means 25%) in the `targets` SQLite
+table. Saving targets is a full replacement: every weight must be finite and
+between `0` and `1`, and the sum of all target weights must be `<= 1.0 + 1e-6`.
+Any unallocated remainder is the implicit cash target:
+
+```
+cash_target_weight = max(0, 1 - sum(target_weight))
+```
+
+The `max(0, ...)` clamp only matters for the `1e-6` validation tolerance near
+100%; ordinary under-allocation is shown as the implicit cash target.
+
+`plan_rebalance(valuation, targets)` is deterministic and does no I/O. It
+returns `None` when `valuation.total_with_cash <= 0` or when there are no
+targets. Its base value is always:
+
+```
+base_value = valuation.total_with_cash
+```
+
+For every symbol with a target row, current weight is recomputed over that base
+instead of reusing `HoldingValuation.weight`:
+
+```
+current_weight = market_value / base_value
+drift = current_weight - target_weight
+```
+
+Held symbols with no target row are listed in `untargeted` and excluded from
+trade suggestions; this distinction matters because an explicit `0%` target
+does produce a sell suggestion. If `abs(drift) <= DRIFT_THRESHOLD` (currently
+5%, imported from `decision_support.py`), the item is a hold and both deltas are
+zero. Otherwise:
+
+```
+delta_usd = round((target_weight - current_weight) * base_value, 2)
+delta_shares = round(delta_usd / price, 4)
+```
+
+Positive `delta_usd` is a buy; negative is a sell. If a targeted symbol has no
+price, `delta_usd` is still computed but `delta_shares` is `null`. The final
+cash estimate is:
+
+```
+cash_after = cash_now - sum(delta_usd)
+```
+
+Items are sorted by absolute drift descending so the largest gaps appear first.
+
+**NAV history** (`app/portfolio/snapshots.py`). Each `GET /portfolio` attempts
+to write one daily NAV snapshot for the current UTC date after live valuation
+finishes. The row key is `day` (`YYYY-MM-DD` UTC), and writes use
+`INSERT OR REPLACE`, so the last successful portfolio page view of the UTC day
+wins. A snapshot is skipped when any holding is unpriced (`unpriced_symbols`
+non-empty) or when `total_with_cash <= 0`; the app never persists a
+partially-priced or zero-value NAV. Days when the app is never opened have no
+point. The NAV series is actual account history over recorded page views
+(`total_with_cash`, securities plus cash), unlike the constant-weight
+Allocation Backtest below.
+
 **Allocation backtest** (`app/portfolio/performance.py::compute_performance`).
 
 > **This is not the account's realized return.** It replays *today's* live
@@ -349,10 +421,11 @@ return history, without reference to weight at all.
 > and no transaction history feeds this calculation.
 
 Requires ≥30 days of overlapping portfolio return history or it returns
-`None` (no metrics shown); benchmark CAGR is computed only over the date
-intersection with the portfolio series, also gated at ≥30 common rows.
-Symbols with too little price history are excluded per the rules below and
-listed in `excluded_symbols`.
+`None` (no metrics shown). When symbols are excluded for insufficient history,
+the remaining weights are renormalized to sum to 100% before computing the
+constant-weight return series, and excluded symbols are listed in
+`excluded_symbols`. Benchmark CAGR is computed only over the date intersection
+with the portfolio series, also gated at ≥30 common rows.
 
 **Optimizer** (`app/portfolio/optimize.py::optimize`). Mean-variance
 optimization via `skfolio.MeanRisk` with `RiskMeasure.VARIANCE`. `max_sharpe`
@@ -406,9 +479,10 @@ symbol-set + lookback + trading day (namespace `correlation`, 24 h TTL).
 - **No lot-level cost basis.** `upsert_holding` overwrites `shares`/`avg_cost`
   on conflict; adding to a position at a new price replaces the average
   rather than tracking individual tax lots.
-- **No cash tracking.** Portfolio weights are equity-only — there's no
-  concept of un-invested cash, so a portfolio with a large uninvested cash
-  balance shows equity-only weights that don't reflect true concentration.
+- **Sparse NAV history by design.** NAV snapshots are opportunistic page-view
+  records, not broker-sourced transaction history. A day without a portfolio
+  page view has no point, and a partially-priced valuation is deliberately
+  skipped rather than stored.
 - **Fabrication check is magnitude-only**, not semantic (see §4) — it can
   match a fabricated number to an unrelated real figure that happens to be
   numerically close.
