@@ -1,5 +1,11 @@
+import json
+
 from app.llm.critic import check_fabrication
+from app.llm.critic import _ground_truth
+from app.llm.research import build_research_prompt
 from app.indicators.schemas import Indicator, IndicatorScorecard
+from app.profiles.largecap import LARGECAP
+from app.profiles.penny import PENNY
 from app.schemas import (
     Fundamentals,
     KeyMetric,
@@ -133,3 +139,56 @@ def test_grounded_number_in_summary_passes():
 def test_scorecard_value_is_allowed_in_indicator_view():
     r = report(indicator_view="6 month momentum is 12.34%.")
     assert check_fabrication(r, DATA, scorecard()).passed
+
+
+def test_largecap_research_prompt_is_legacy_byte_identical():
+    sc = scorecard()
+    expected = f"""Produce a structured research report for AAPL.
+
+Below is the ONLY ground truth you may use. Treat it as authoritative and complete; do not supplement it with outside knowledge of specific numbers.
+
+```json
+{json.dumps(DATA.model_dump(), indent=2)}
+```
+
+INDICATOR SCORECARD (computed deterministically by code):
+```json
+{json.dumps(sc.model_dump(), indent=2)}
+```
+
+Restate the relevant figures in key_metrics, explain why each matters, and build a balanced bull/bear thesis. Where data is missing, note it in things_to_investigate and let it lower your confidence."""
+
+    assert build_research_prompt("AAPL", DATA, sc, LARGECAP) == expected
+
+
+def test_largecap_ground_truth_is_legacy_byte_identical():
+    sc = scorecard()
+    expected = (
+        "GROUND TRUTH (the ONLY numbers you may use):\n```json\n"
+        + json.dumps(DATA.model_dump(), indent=2)
+        + "\n```\n\nINDICATOR SCORECARD (deterministic, computed by code):\n```json\n"
+        + json.dumps(sc.model_dump(), indent=2)
+        + "\n```"
+    )
+
+    assert _ground_truth(DATA, sc, LARGECAP) == expected
+
+
+def test_penny_research_prompt_inserts_stance_between_scorecard_and_instruction():
+    sc = scorecard()
+    prompt = build_research_prompt("AAPL", DATA, sc, PENNY)
+    scorecard_end = prompt.index(
+        f"INDICATOR SCORECARD (computed deterministically by code):\n```json\n"
+        f"{json.dumps(sc.model_dump(), indent=2)}\n```"
+    )
+    stance_index = prompt.index("PROFILE CONTEXT:")
+    closing_index = prompt.index("Restate the relevant figures")
+
+    assert scorecard_end < stance_index < closing_index
+    assert f"PROFILE CONTEXT:\n{PENNY.research_stance}\n\nRestate" in prompt
+
+
+def test_penny_ground_truth_prepends_stance():
+    gt = _ground_truth(DATA, scorecard(), PENNY)
+
+    assert gt.startswith(f"PROFILE CONTEXT: {PENNY.research_stance}\n\nGROUND TRUTH")

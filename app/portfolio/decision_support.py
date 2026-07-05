@@ -15,6 +15,8 @@ from itertools import combinations
 
 from pydantic import BaseModel, Field
 
+from ..profiles.base import Profile
+from ..profiles.largecap import LARGECAP
 from ..cache import with_cache
 from ..schemas import Confidence
 from .holdings import PortfolioValuation
@@ -182,17 +184,6 @@ def analyze_drift(result: OptimizeResult) -> DriftAnalysis | None:
 
 # --- 3) Position sizing guidance --------------------------------------------
 
-# Conservative size bands as a fraction of total portfolio value, scaled by how
-# much confidence the grounded research report carried. Higher confidence earns
-# a modestly larger band; low confidence stays small. These are rules of thumb,
-# not targets.
-_SIZE_BANDS: dict[Confidence, tuple[float, float]] = {
-    "high": (0.05, 0.10),
-    "medium": (0.03, 0.06),
-    "low": (0.015, 0.03),
-}
-
-
 class PositionSizeGuidance(BaseModel):
     symbol: str | None
     confidence: Confidence
@@ -204,6 +195,8 @@ class PositionSizeGuidance(BaseModel):
     note: str
     current_weight: float | None = None
     already_at_band: bool = False
+    profile: str = "largecap"
+    liquidity_cap_dollars: float | None = None
 
 
 def suggest_position_size(
@@ -212,6 +205,8 @@ def suggest_position_size(
     symbol: str | None = None,
     *,
     current_weight: float | None = None,
+    profile: Profile = LARGECAP,
+    adv_dollars: float | None = None,
 ) -> PositionSizeGuidance:
     """Suggest a starting position-size *range* for a candidate.
 
@@ -219,10 +214,11 @@ def suggest_position_size(
     widen it slightly when the research confidence is higher. Shown as both a
     percentage and an approximate dollar amount.
     """
-    low_pct, high_pct = _SIZE_BANDS[confidence]
+    low_pct, high_pct = profile.sizing_bands[confidence]
     low_headroom = low_pct
     high_headroom = high_pct
     already_at_band = False
+    liquidity_cap_dollars: float | None = None
     note = (
         f"Based on '{confidence}' research confidence, a starting position of "
         f"roughly {low_pct * 100:.1f}–{high_pct * 100:.0f}% of your "
@@ -253,17 +249,40 @@ def suggest_position_size(
             "suggest an approximate dollar range to consider for a new position."
         )
 
+    low_dollars = portfolio_value * low_headroom
+    high_dollars = portfolio_value * high_headroom
+    liquidity = profile.liquidity_sizing
+    if liquidity is not None and adv_dollars is not None:
+        liquidity_cap_dollars = (
+            adv_dollars * liquidity.max_participation * liquidity.max_days_to_exit
+        )
+        cap_binds = liquidity_cap_dollars < high_dollars
+        low_dollars = min(low_dollars, liquidity_cap_dollars)
+        high_dollars = min(high_dollars, liquidity_cap_dollars)
+        if cap_binds:
+            note += (
+                f" Liquidity cap applied: sized so the position could be exited in "
+                f"~{liquidity.max_days_to_exit} days at "
+                f"{liquidity.max_participation:.0%} of average daily dollar volume."
+            )
+    elif liquidity is not None:
+        note += (
+            " Liquidity is unknown for this profile; treat the upper band with caution."
+        )
+
     return PositionSizeGuidance(
         symbol=symbol,
         confidence=confidence,
         portfolio_value=portfolio_value,
         low_pct=low_pct,
         high_pct=high_pct,
-        low_dollars=portfolio_value * low_headroom,
-        high_dollars=portfolio_value * high_headroom,
+        low_dollars=low_dollars,
+        high_dollars=high_dollars,
         note=note,
         current_weight=current_weight,
         already_at_band=already_at_band,
+        profile=profile.key,
+        liquidity_cap_dollars=liquidity_cap_dollars,
     )
 
 

@@ -11,7 +11,8 @@ from ..cache import with_cache
 from ..data import fetch_ticker_data
 from ..indicators.confidence import clamp_confidence, compute_confidence
 from ..indicators.engine import compute_scorecard
-from ..profiles.largecap import LARGECAP
+from ..profiles import select_profile
+from ..profiles.base import ProfileKey
 from ..schemas import ResearchResult
 from .critic import ReviewMode, research_ticker_reviewed
 from .usage import annotate_run
@@ -35,21 +36,32 @@ def _trading_day() -> str:
 
 
 async def research_ticker_cached(
-    symbol: str, mode: ReviewMode = "thorough", *, fresh: bool = False
+    symbol: str,
+    mode: ReviewMode = "thorough",
+    *,
+    profile_override: ProfileKey | None = None,
+    fresh: bool = False,
 ) -> ResearchResult:
     """Full research pipeline (data → scorecard → confidence → critic chain),
     cached per symbol/day/mode for 24h. Raises ``InsufficientDataError``
     (never cached) if there's no usable market data for ``symbol``."""
     sym = symbol.upper()
-    key = f"{sym}:{_trading_day()}:{mode}"
+    # The key carries the OVERRIDE (not the derived profile): deriving the profile
+    # needs ticker data, and fetching before the cache read would break the
+    # zero-network-on-cache-hit property above. Auto-selection is deterministic
+    # for a symbol/day, so "auto" scopes the derived case fully.
+    key = f"{sym}:{_trading_day()}:{mode}:{profile_override or 'auto'}"
 
     async def produce() -> dict:
         ticker = await fetch_ticker_data(sym, fresh=fresh)
         if ticker.quote is None and ticker.fundamentals.market_cap is None:
             raise InsufficientDataError(sym, ticker.sources)
-        scorecard = await compute_scorecard(sym, ticker, profile=LARGECAP, fresh=fresh)
-        assessment = compute_confidence(ticker, scorecard)
-        report, critique, revised = await research_ticker_reviewed(sym, ticker, scorecard, mode)
+        profile, profile_reason = select_profile(ticker, profile_override)
+        scorecard = await compute_scorecard(sym, ticker, profile=profile, fresh=fresh)
+        assessment = compute_confidence(ticker, scorecard, profile)
+        report, critique, revised = await research_ticker_reviewed(
+            sym, ticker, scorecard, profile, mode
+        )
         report.confidence = clamp_confidence(
             report.confidence, critique.suggested_confidence, assessment.computed
         )
@@ -60,6 +72,8 @@ async def research_ticker_cached(
             revised=revised,
             scorecard=scorecard,
             confidence_assessment=assessment,
+            profile=profile.key,
+            profile_reason=profile_reason,
         ).model_dump()
 
     value, hit = await with_cache("report", key, REPORT_TTL_MS, produce, fresh=fresh)

@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic_ai import Agent, CachePoint
 
 from ..indicators.schemas import IndicatorScorecard
+from ..profiles.base import Profile
 from ..schemas import Critique, FabricationCheck, TickerData, TickerReport
 from .provider import premium_model, premium_settings, workhorse_model, workhorse_settings
 from .research import research_ticker
@@ -176,14 +177,17 @@ Follow the task instructions in the user message exactly."""
 AUDIT_GUIDANCE = """Audit for: support (is every qualitative claim grounded?), traceability (is every number present in the ground truth? treat the fabrication hint as authoritative for hard fabrications, then look for any it missed), balance (fair bull/bear?), completeness (material risks omitted?), calibration (confidence justified by data completeness?), indicator engagement (does indicator_view address every non-unavailable signal and its conflicts?). Report concrete, actionable issues; reserve "high" severity for fabricated numbers or materially misleading claims."""
 
 
-def _ground_truth(data: TickerData, scorecard: IndicatorScorecard) -> str:
-    return (
+def _ground_truth(data: TickerData, scorecard: IndicatorScorecard, profile: Profile) -> str:
+    ground_truth = (
         "GROUND TRUTH (the ONLY numbers you may use):\n```json\n"
         + json.dumps(data.model_dump(), indent=2)
         + "\n```\n\nINDICATOR SCORECARD (deterministic, computed by code):\n```json\n"
         + json.dumps(scorecard.model_dump(), indent=2)
         + "\n```"
     )
+    if profile.research_stance:
+        return f"PROFILE CONTEXT: {profile.research_stance}\n\n{ground_truth}"
+    return ground_truth
 
 
 _critic_agent: Agent[None, Critique] | None = None
@@ -251,24 +255,28 @@ REPORT UNDER REVIEW:
 
 
 async def critique_report(
-    report: TickerReport, data: TickerData, scorecard: IndicatorScorecard
+    report: TickerReport, data: TickerData, scorecard: IndicatorScorecard, profile: Profile
 ) -> Critique:
     """Single-shot critique (tests / direct callers)."""
     return await _run_critique(
-        report, data, scorecard, _ground_truth(data, scorecard), "critique", "thorough"
+        report, data, scorecard, _ground_truth(data, scorecard, profile), "critique", "thorough"
     )
 
 
 async def research_ticker_reviewed(
-    symbol: str, data: TickerData, scorecard: IndicatorScorecard, mode: ReviewMode = "thorough"
+    symbol: str,
+    data: TickerData,
+    scorecard: IndicatorScorecard,
+    profile: Profile,
+    mode: ReviewMode = "thorough",
 ) -> tuple[TickerReport, Critique, bool]:
     """Draft, then audit; in thorough mode, revise and re-critique if the
     audit found fabrication or a medium/high-severity issue. Cheap mode always
     stops after a single workhorse-model self-audit. Returns
     ``(report, critique, revised)``."""
-    gt = _ground_truth(data, scorecard)  # one cacheable prefix shared by every call below
+    gt = _ground_truth(data, scorecard, profile)  # one cacheable prefix shared by every call below
 
-    report = await research_ticker(symbol, data, scorecard)
+    report = await research_ticker(symbol, data, scorecard, profile)
     critique = await _run_critique(report, data, scorecard, gt, "critique", mode)
 
     # Cheap mode stops here: workhorse critique, no premium revision.

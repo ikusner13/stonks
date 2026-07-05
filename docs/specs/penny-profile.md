@@ -261,10 +261,13 @@ matching the existing pattern; values `_round`ed):
   re-critique chain, so prefix caching still works. Thread `profile` through
   `research_ticker_reviewed` and `critique_report`.
 - `pipeline.py::research_ticker_cached(symbol, mode, *, profile_override: ProfileKey | None = None, fresh=False)`:
-  1. fetch ticker data (unchanged),
-  2. `profile, reason = select_profile(ticker, profile_override)`,
-  3. report cache key becomes `f"{sym}:{day}:{mode}:{profile.key}"` (override can change
-     the profile for the same symbol/day, so the key must carry it),
+  1. fetch ticker data (unchanged, still inside `produce()` — a report-cache hit must
+     keep making zero network calls),
+  2. `profile, reason = select_profile(ticker, profile_override)` (inside `produce()`),
+  3. report cache key becomes `f"{sym}:{day}:{mode}:{profile_override or 'auto'}"` —
+     the key carries the *override*, not the derived profile (which isn't known until
+     after the fetch); auto-selection is deterministic per symbol/day, so `auto`
+     scopes it fully,
   4. pass profile to `compute_scorecard`, `compute_confidence`,
      `research_ticker_reviewed`,
   5. set `ResearchResult.profile = profile.key`, `profile_reason = reason`.
