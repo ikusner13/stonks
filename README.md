@@ -86,7 +86,7 @@ your saved holdings and watchlist entries are gone for good.
     independent premium audit.
 - **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
   any research report, and used to prefill the portfolio page.
-- **Portfolio** — holdings valuation, CSV holdings import, and dry-powder tracking, plus four
+- **Portfolio** — holdings valuation, CSV holdings import, and dry-powder tracking, plus five
   decision-support panels:
   - **Health**: concentration by top-1/3/5 holding weight, in plain language.
   - **Correlation**: pairwise return correlation flags holdings that move
@@ -134,10 +134,10 @@ app/
   data/        market data (yfinance quotes/fundamentals/news, Finnhub, SEC/EDGAR, FRED, screener)
   indicators/  deterministic indicator scorecard + confidence assessment
   llm/         Pydantic AI pipelines: research, critic, discovery, usage tracking
-  portfolio/   skfolio optimizer, holdings valuation, performance backtest, decision_support
+  portfolio/   holdings valuation, NAV snapshots, targets/rebalance, optimizer, backtest, decision_support
   web/         FastAPI app, Jinja2 templates, HTMX partials, static assets
   cache.py     file-based read-through KV (data/sec/macro/report/scorecard/correlation caches)
-  db.py        SQLite watchlist/settings store
+  db.py        SQLite watchlist/settings store + shared connection helper
   schemas.py   Pydantic models / LLM structured-output contracts
   cli.py       Typer CLI
 docs/

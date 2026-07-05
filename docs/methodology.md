@@ -238,8 +238,11 @@ between `0` and `1`, and the sum of all target weights must be `<= 1.0 + 1e-6`.
 Any unallocated remainder is the implicit cash target:
 
 ```
-cash_target_weight = 1 - sum(target_weight)
+cash_target_weight = max(0, 1 - sum(target_weight))
 ```
+
+The `max(0, ...)` clamp only matters for the `1e-6` validation tolerance near
+100%; ordinary under-allocation is shown as the implicit cash target.
 
 `plan_rebalance(valuation, targets)` is deterministic and does no I/O. It
 returns `None` when `valuation.total_with_cash <= 0` or when there are no
@@ -300,10 +303,11 @@ Allocation Backtest below.
 > and no transaction history feeds this calculation.
 
 Requires ≥30 days of overlapping portfolio return history or it returns
-`None` (no metrics shown); benchmark CAGR is computed only over the date
-intersection with the portfolio series, also gated at ≥30 common rows.
-Symbols with too little price history are excluded per the rules below and
-listed in `excluded_symbols`.
+`None` (no metrics shown). When symbols are excluded for insufficient history,
+the remaining weights are renormalized to sum to 100% before computing the
+constant-weight return series, and excluded symbols are listed in
+`excluded_symbols`. Benchmark CAGR is computed only over the date intersection
+with the portfolio series, also gated at ≥30 common rows.
 
 **Optimizer** (`app/portfolio/optimize.py::optimize`). Mean-variance
 optimization via `skfolio.MeanRisk` with `RiskMeasure.VARIANCE`. `max_sharpe`
