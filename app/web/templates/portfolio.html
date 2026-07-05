@@ -9,8 +9,13 @@
   <section class="mb-10">
     <h2 class="mb-4 text-lg font-semibold">Holdings</h2>
 
-    {# Live valuation table — refreshed after each add/remove #}
-    {% include "partials/holdings_table.html" %}
+    {# Live valuation table — refreshed after each add/remove or transaction. #}
+    <div
+      hx-get="/portfolio/holdings"
+      hx-trigger="holdings-changed from:body"
+      hx-swap="innerHTML">
+      {% include "partials/holdings_table.html" %}
+    </div>
 
     {# Cash balance form #}
     <form hx-post="/portfolio/cash"
@@ -182,6 +187,19 @@
       Fetching price history and optimizing…
     </p>
     <div id="opt-results"></div>
+  </section>
+
+  {# ── G) Transactions ─────────────────────────────────────────────────────── #}
+  <section class="mt-10">
+    <h2 class="mb-1 text-lg font-semibold">Transactions</h2>
+    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Optional journal entries apply to cash and holdings when saved.</p>
+    <div
+      id="transactions-panel"
+      hx-get="/portfolio/transactions"
+      hx-trigger="load, txns-changed from:body"
+      hx-swap="innerHTML">
+      <p class="text-sm text-[var(--sea-ink-soft)]">Loading transactions…</p>
+    </div>
   </section>
 </main>
 {% endblock %}

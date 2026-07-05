@@ -11,7 +11,7 @@
 | `SEC_IDENTITY` | Optional | Contact email SEC EDGAR requires for XBRL financials. | Falls back to a hardcoded address in `app/data/sec.py`; financials still fetch normally — set your own for anything beyond local use. |
 | `WORKHORSE_MODEL` | Optional (default `google/gemini-3.1-flash-lite`) | Model for the research draft, discovery, and the cheap-mode critic. | Uses the default. |
 | `PREMIUM_MODEL` | Optional (default `anthropic/claude-sonnet-5`) | Model for the thorough-mode critic/revise chain. | Uses the default. |
-| `STOCKS_DB_PATH` | Optional (default `<repo>/stocks.db`) | SQLite file for the watchlist and holdings tables. | Uses the default path. |
+| `STOCKS_DB_PATH` | Optional (default `<repo>/stocks.db`) | SQLite file for the watchlist, holdings, settings, targets, NAV snapshots, and transactions tables. | Uses the default path. |
 | `STOCKS_CACHE_DIR` | Optional (default `<repo>/.cache`) | Root of every file cache namespace, plus `usage.jsonl`. | Uses the default path. |
 | `LOG_LEVEL` | Optional (default `INFO`) | Root logger level — **web app only**; `app/cli.py` never calls `logging.basicConfig`. | Web app defaults to `INFO`; the CLI runs under Python's default root logger (effectively `WARNING`) regardless of this var. |
 
@@ -40,7 +40,7 @@ docker build -t stocks . && docker run -p 8000:8000 --env-file .env -v stocks-da
 ```
 The image sets `STOCKS_DB_PATH=/data/stocks.db` and `STOCKS_CACHE_DIR=/data/.cache`
 and declares `/data` as a volume. **Without `-v`, every container
-restart/recreate starts from empty**: no watchlist, no holdings, no caches —
+restart/recreate starts from empty**: no watchlist, no holdings, no transactions, no caches —
 the next request re-fetches and re-researches everything from scratch (and,
 for research, re-pays the LLM cost for anything requested that trading day).
 
@@ -65,6 +65,28 @@ MSFT,4,
 Symbols are uppercased before saving. `shares` must be a positive number;
 blank or unparseable `avg_cost` values are saved as empty. Bad data rows are
 reported with line numbers and do not block valid rows from importing.
+
+## Transaction CSV import
+
+The transactions panel accepts CSV uploads with the same 100 KB file limit,
+500 data-row limit, UTF-8/UTF-8-BOM decoding, and case-insensitive headers as
+holdings import. The header must include `date` and `side`; these columns are
+recognized when present:
+
+```csv
+date,side,symbol,shares,price,amount,note
+2026-01-01,deposit,,,,10000,initial cash
+2026-01-02,buy,AAPL,10,150,,first lot
+2026-02-01,sell,AAPL,2,175,,trim
+2026-03-01,withdraw,,,,500,cash out
+```
+
+Rows are applied in file order, so put them oldest first. Buy/sell rows ignore
+the CSV `amount` value and compute amount from `shares * price`; deposit and
+withdraw rows require `amount`. Each valid row mutates recorded cash and/or the
+authoritative holdings table immediately. Bad rows are reported with line
+numbers and do not block later rows. Deleting a transaction later removes only
+the ledger record, not its cash or holdings effect.
 
 ## Cost & usage
 
@@ -116,7 +138,7 @@ The **same event** is also pretty-printed to stderr right after the run
 Read it as: `cost_usd` per call and in `TOTAL` is the actual dollar charge;
 `cached` next to `in=` is how many of those input tokens hit the prompt cache
 (high numbers on `critique`/`revise`/`re-critique` mean the shared ground-truth
-prefix — methodology §3 — is doing its job). `stocks usage` (`format_rollup`)
+prefix — methodology §5 — is doing its job). `stocks usage` (`format_rollup`)
 prints the last 20 events plus an all-time rollup: total cost, total input
 tokens, cache-hit percentage, and total output tokens across every run ever
 logged.
@@ -141,7 +163,7 @@ completeness signal; check them before trusting a report's prose tone.
 **Why a report shows lower confidence than expected**: the displayed
 confidence is `min()` of three independent inputs — what the report itself
 claims, the critic's `suggested_confidence`, and a completeness-weighted
-`computed` grade (methodology §4) that's further hard-capped to `medium` if
+`computed` grade (methodology §6) that's further hard-capped to `medium` if
 any source errored, or `low` if there's no quote at all. If it's lower than
 you expected, check `critique.suggested_confidence` and
 `confidence_assessment.reasons` (visible in the critic-review panel) — one of
@@ -153,7 +175,7 @@ request: `data` (15 min), `sec` (24h), `macro` (6h), `scorecard` (24h), and
 `report` (24h) all re-fetch/re-run instead of returning a cached value, then
 write the new result back (refreshing each TTL). It does **not** touch the
 portfolio `correlation` cache (that panel has no fresh param) or the
-watchlist/holdings SQLite tables.
+watchlist/holdings/transactions SQLite tables.
 
 **Cache locations** — everything lives under `STOCKS_CACHE_DIR` (default
 `.cache/`) as `<namespace>/<key>.json`, plus `usage.jsonl` at its root.
@@ -161,4 +183,5 @@ watchlist/holdings SQLite tables.
 safe to delete any time — they're pure TTL caches; the only cost of clearing
 one is a paid re-fetch or re-research next time it's needed. The SQLite file
 at `STOCKS_DB_PATH` (default `stocks.db`) is **not** a cache — it's the
-watchlist and holdings dataset. Deleting it loses that data permanently.
+watchlist, holdings, and transaction dataset. Deleting it loses that data
+permanently.

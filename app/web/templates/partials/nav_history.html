@@ -1,4 +1,17 @@
 <div>
+  {% if returns %}
+  <div class="mb-4 flex flex-wrap items-center gap-2">
+    {% if returns.mwr_annualized is not none %}
+    <span class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-3 py-1 text-xs font-semibold">
+      MWR {{ returns.mwr_annualized | pct }}/yr
+    </span>
+    {% else %}
+    <span class="rounded-full border border-[var(--line)] px-3 py-1 text-xs text-[var(--sea-ink-soft)]">
+      MWR n/a
+    </span>
+    {% endif %}
+  </div>
+  {% endif %}
   {% if series.svg_polyline %}
   <div class="mb-4">
     <svg viewBox="0 0 600 120" role="img" aria-label="Portfolio NAV history" class="h-32 w-full">

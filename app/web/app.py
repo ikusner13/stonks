@@ -57,6 +57,14 @@ from ..portfolio.snapshots import (
     list_snapshots,
     record_snapshot,
 )
+from ..portfolio.transactions import (
+    Transaction,
+    apply_transaction,
+    compute_returns,
+    delete_transaction,
+    init_transactions_db,
+    list_transactions,
+)
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -168,6 +176,7 @@ db.init_db()  # idempotent; ensures the watchlist table exists before first requ
 init_holdings_db()  # idempotent; ensures the holdings table exists before first request
 init_snapshots_db()  # idempotent; ensures the NAV history table exists before first request
 init_targets_db()  # idempotent; ensures target allocations exist before first request
+init_transactions_db()  # idempotent; ensures the transaction ledger exists before first request
 
 
 # --- Discover ---------------------------------------------------------------
@@ -357,6 +366,15 @@ def portfolio_holdings_row(request: Request):
     return templates.TemplateResponse(request, "partials/portfolio_row.html", {"r": None})
 
 
+@app.get("/portfolio/holdings", response_class=HTMLResponse)
+async def portfolio_holdings(request: Request):
+    init_holdings_db()
+    valuation = await value_holdings()
+    return templates.TemplateResponse(
+        request, "partials/holdings_table.html", {"valuation": valuation}
+    )
+
+
 @app.post("/portfolio/holdings", response_class=HTMLResponse)
 async def portfolio_holdings_add(
     request: Request,
@@ -491,6 +509,177 @@ async def portfolio_import(request: Request, file: UploadFile = File(...)):
     )
 
 
+def _parse_optional_form_float(raw: str | None) -> float | None:
+    if raw is None or not raw.strip():
+        return None
+    return float(raw)
+
+
+async def _transactions_context(import_summary: dict | None = None) -> dict:
+    init_holdings_db()
+    init_transactions_db()
+    valuation = await value_holdings()
+    return {
+        "valuation": valuation,
+        "returns": compute_returns(valuation),
+        "transactions": list_transactions(limit=20),
+        "import_summary": import_summary,
+    }
+
+
+@app.get("/portfolio/transactions", response_class=HTMLResponse)
+async def portfolio_transactions(request: Request):
+    try:
+        return templates.TemplateResponse(
+            request,
+            "partials/transactions.html",
+            await _transactions_context(),
+        )
+    except Exception:
+        logger.exception("portfolio transactions failed")
+        return _error_partial(
+            request, "Transactions failed — see server logs.", "/portfolio/transactions"
+        )
+
+
+@app.post("/portfolio/transactions", response_class=HTMLResponse)
+async def portfolio_transaction_add(
+    request: Request,
+    ts: str = Form(""),
+    side: str = Form(""),
+    symbol: str = Form(""),
+    shares: str = Form(""),
+    price: str = Form(""),
+    amount: str = Form(""),
+    note: str = Form(""),
+):
+    try:
+        side_clean = side.strip().lower()
+        parsed_shares = _parse_optional_form_float(shares)
+        parsed_price = _parse_optional_form_float(price)
+        parsed_amount = (
+            float(parsed_shares or 0) * float(parsed_price or 0)
+            if side_clean in {"buy", "sell"}
+            else float(amount)
+        )
+        apply_transaction(
+            Transaction(
+                ts=ts.strip(),
+                side=side_clean,
+                symbol=symbol.strip() or None,
+                shares=parsed_shares,
+                price=parsed_price,
+                amount=parsed_amount,
+                realized_pl=None,
+                note=note.strip(),
+            )
+        )
+        response = templates.TemplateResponse(
+            request,
+            "partials/transactions.html",
+            await _transactions_context(),
+        )
+        response.headers["HX-Trigger"] = "txns-changed, holdings-changed"
+        return response
+    except (TypeError, ValueError) as e:
+        return _error_partial(request, str(e))
+    except Exception:
+        logger.exception("portfolio transaction add failed")
+        return _error_partial(request, "Transaction failed — see server logs.")
+
+
+@app.post("/portfolio/transactions/delete/{txn_id}", response_class=HTMLResponse)
+async def portfolio_transaction_delete(request: Request, txn_id: int):
+    try:
+        delete_transaction(txn_id)
+        response = templates.TemplateResponse(
+            request,
+            "partials/transactions.html",
+            await _transactions_context(),
+        )
+        response.headers["HX-Trigger"] = "txns-changed"
+        return response
+    except Exception:
+        logger.exception("portfolio transaction delete failed")
+        return _error_partial(request, "Transaction delete failed — see server logs.")
+
+
+@app.post("/portfolio/transactions/import", response_class=HTMLResponse)
+async def portfolio_transactions_import(request: Request, file: UploadFile = File(...)):
+    raw = await file.read()
+    if len(raw) > MAX_IMPORT_BYTES:
+        return _error_partial(request, "CSV import failed: file must be 100 KB or smaller.")
+
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return _error_partial(request, "CSV import failed: file must be UTF-8 encoded.")
+
+    try:
+        rows = list(csv_reader(StringIO(text)))
+    except CsvError:
+        return _error_partial(request, "CSV import failed: unable to parse CSV.")
+
+    if not rows:
+        return _error_partial(request, "CSV import failed: header row is required.")
+
+    header = [col.strip().lower() for col in rows[0]]
+    column_map = {name: index for index, name in enumerate(header) if name}
+    if "date" not in column_map or "side" not in column_map:
+        return _error_partial(request, "CSV import failed: header must include date and side.")
+
+    data_rows = rows[1:]
+    if len(data_rows) > MAX_IMPORT_ROWS:
+        return _error_partial(request, "CSV import failed: maximum 500 data rows allowed.")
+
+    def cell(row: list[str], name: str) -> str:
+        index = column_map.get(name)
+        if index is None or index >= len(row):
+            return ""
+        return row[index].strip()
+
+    imported = 0
+    skipped: list[str] = []
+    for line_number, row in enumerate(data_rows, start=2):
+        if not any(col.strip() for col in row):
+            continue
+        try:
+            side_clean = cell(row, "side").lower()
+            raw_shares = cell(row, "shares")
+            raw_price = cell(row, "price")
+            shares_value = float(raw_shares) if raw_shares else None
+            price_value = float(raw_price) if raw_price else None
+            raw_amount = cell(row, "amount")
+            amount_value = (
+                float(shares_value or 0) * float(price_value or 0)
+                if side_clean in {"buy", "sell"}
+                else float(raw_amount)
+            )
+            apply_transaction(
+                Transaction(
+                    ts=cell(row, "date"),
+                    side=side_clean,
+                    symbol=cell(row, "symbol") or None,
+                    shares=shares_value,
+                    price=price_value,
+                    amount=amount_value,
+                    realized_pl=None,
+                    note=cell(row, "note"),
+                )
+            )
+            imported += 1
+        except (TypeError, ValueError) as e:
+            skipped.append(f"line {line_number}: {e}")
+
+    response = templates.TemplateResponse(
+        request,
+        "partials/transactions.html",
+        await _transactions_context({"imported": imported, "skipped": skipped}),
+    )
+    response.headers["HX-Trigger"] = "txns-changed, holdings-changed"
+    return response
+
+
 def _parse_target_form(symbols: list[str], weights_pct: list[str]) -> list[Target]:
     targets: list[Target] = []
     for raw_symbol, raw_weight in zip(symbols, weights_pct):
@@ -623,11 +812,17 @@ async def portfolio_rebalance(request: Request):
 @app.get("/portfolio/nav", response_class=HTMLResponse)
 async def portfolio_nav(request: Request):
     try:
+        init_holdings_db()
+        valuation = await value_holdings()
         series = build_nav_series(list_snapshots())
         return templates.TemplateResponse(
             request,
             "partials/nav_history.html",
-            {"series": series, "recent": list(reversed(series.points[-10:]))},
+            {
+                "series": series,
+                "recent": list(reversed(series.points[-10:])),
+                "returns": compute_returns(valuation),
+            },
         )
     except Exception:
         logger.exception("portfolio nav history failed")

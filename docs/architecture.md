@@ -35,6 +35,9 @@ line to `.cache/usage.jsonl` when the `with_run` context exits. Imports
 
 **`app/portfolio/`** — Everything that isn't single-ticker research.
 `holdings.py` owns the SQLite-backed positions table and live valuation.
+`transactions.py` owns the optional SQLite-backed transaction ledger, applies
+validated buys/sells/deposits/withdrawals to authoritative holdings and cash,
+and computes realized P/L rollups plus money-weighted return.
 `snapshots.py` owns the SQLite-backed daily NAV history and the server-computed
 series model used by the equity-curve partial.
 `history.py` is the shared price-history fetch + cleaning helper
@@ -137,7 +140,9 @@ forms are then loaded or submitted independently:
   round-trip needed for the initial view). Add/remove (`POST /portfolio/holdings`,
   `POST /portfolio/holdings/remove/{symbol}`), cash updates (`POST /portfolio/cash`),
   and CSV import (`POST /portfolio/import`) each re-run `value_holdings()` and
-  swap in a fresh `holdings_table` partial.
+  swap in a fresh `holdings_table` partial. A wrapping holder also listens for
+  `holdings-changed` and refreshes from `GET /portfolio/holdings`, so applied
+  transactions update the authoritative holdings table without reloading the page.
 - **B) Health & correlation** — health is computed inline (part of the initial
   page render, no fetch of its own). Correlation is lazy:
   `hx-get="/portfolio/correlation" hx-trigger="load"` fires immediately after
@@ -146,8 +151,10 @@ forms are then loaded or submitted independently:
 - **C) NAV history** — lazy-loaded on `hx-trigger="load"`:
   `GET /portfolio/nav` reads the last 365 daily snapshots from SQLite, computes
   deltas against the previous and first snapshots, and renders an SVG polyline
-  string for a `600x120` viewBox in `partials/nav_history.html`. With fewer than
-  two points, no polyline is produced.
+  string for a `600x120` viewBox in `partials/nav_history.html`. It also
+  recomputes current valuation and `ReturnsSummary` so the NAV panel can show
+  the money-weighted return badge. With fewer than two points, no polyline is
+  produced.
 - **D) Allocation backtest** — also lazy-loaded on `hx-trigger="load"`:
   `GET /portfolio/performance` recomputes `value_holdings()` again (independent
   of the page-load call, same 15-minute price-cache caveat) and calls
@@ -166,6 +173,16 @@ forms are then loaded or submitted independently:
   worker thread (`anyio.to_thread.run_sync`, since `skfolio`/`numpy` there are
   synchronous and CPU-bound), then `analyze_drift` compares the result's
   current-vs-optimal weights before rendering `partials/portfolio_results.html`.
+- **G) Transactions** — lazy-loaded on `hx-trigger="load, txns-changed from:body"`:
+  `GET /portfolio/transactions` computes current valuation, `ReturnsSummary`,
+  and the last 20 ledger rows. `POST /portfolio/transactions` validates and
+  applies one row through `transactions.apply_transaction()`, then returns the
+  same partial with `HX-Trigger: txns-changed, holdings-changed`. CSV import
+  (`POST /portfolio/transactions/import`) uses the same 100 KB / 500 row /
+  UTF-8 BOM-tolerant limits as holdings import and applies valid rows in file
+  order while collecting per-line errors. Deletion
+  (`POST /portfolio/transactions/delete/{id}`) removes only the ledger row and
+  does not reverse holdings or cash.
 
 The independent portfolio panel routes wrap their real work in try/except where
 generic failures are expected, logging the full traceback and returning
@@ -208,6 +225,7 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
 | `holdings` | `app/portfolio/holdings.py` | Current position rows keyed by symbol: shares and optional average cost. |
 | `targets` | `app/portfolio/plan.py` | User-owned target allocation rows keyed by symbol; weights are stored as fractions. |
 | `nav_snapshots` | `app/portfolio/snapshots.py` | One opportunistic NAV row per UTC day: securities value, cash, total NAV, cost, and unrealized P&L. |
+| `transactions` | `app/portfolio/transactions.py` | Optional applied ledger rows: date, side, symbol, shares, price, amount, realized P/L, note, and creation timestamp. |
 
 ## Error-handling conventions
 
@@ -231,7 +249,7 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
   `_capture`, which turns an exception into a safe fallback value plus an
   `error` status entry, rather than letting it propagate — so one dead source
   degrades the merged `TickerData` instead of failing the whole request. This
-  status list is what feeds the confidence hard-caps (methodology §4) and the
+  status list is what feeds the confidence hard-caps (methodology §6) and the
   UI's source chips.
 - **Logging setup.** `logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))`
   is called once, at import time of `app/web/app.py` — so it only takes effect
