@@ -34,6 +34,9 @@ class Fundamentals(BaseModel):
     forward_pe: float | None = None
     profit_margin: float | None = None
     revenue: float | None = None
+    exchange: str | None = None
+    float_shares: float | None = None
+    shares_outstanding: float | None = None
 
 
 class NewsItem(BaseModel):
@@ -185,6 +188,8 @@ class ResearchResult(BaseModel):
     revised: bool
     scorecard: IndicatorScorecard | None = None
     confidence_assessment: ConfidenceAssessment | None = None
+    profile: str = "largecap"
+    profile_reason: str = ""
 
 
 # Deferred imports to avoid circular dependency (data/ imports schemas).

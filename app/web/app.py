@@ -11,8 +11,9 @@ from csv import reader as csv_reader
 from io import StringIO
 from math import isfinite
 from pathlib import Path
+from typing import Literal
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -23,6 +24,7 @@ from ..llm.budget import BudgetExceededError
 from ..llm.discovery import discover_ideas
 from ..llm.pipeline import InsufficientDataError, research_ticker_cached
 from ..llm.usage import format_event, with_run
+from ..profiles import PENNY_PRICE_MAX, PROFILES
 from ..schemas import Confidence
 from ..portfolio.decision_support import (
     DISCLAIMER as DS_DISCLAIMER,
@@ -74,6 +76,11 @@ LLM_CONFIGURED = bool(OPENROUTER_API_KEY)
 if not LLM_CONFIGURED:
     logger.warning("OPENROUTER_API_KEY not set — research and discovery will fail")
 
+OPTIMIZER_EXCLUSION_WARNING = (
+    "excluded from mean-variance optimization: sample statistics on illiquid micro-caps "
+    "are unreliable"
+)
+
 MAX_IMPORT_BYTES = 100 * 1024
 MAX_IMPORT_ROWS = 500
 
@@ -103,8 +110,38 @@ def _pct(n: float) -> str:
     return f"{n * 100:.1f}%"
 
 
+def _fmt_indicator_value(value: float | None, unit: str) -> str:
+    if value is None:
+        return "n/a"
+    if unit == "pct":
+        return _pct(value)
+    if unit == "ratio":
+        return f"{value:.2f}"
+    if unit == "usd":
+        sign = "-" if value < 0 else ""
+        n = abs(value)
+        for div, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")):
+            if n >= div:
+                scaled = f"{n / div:.1f}".rstrip("0").rstrip(".")
+                return f"{sign}${scaled}{suffix}"
+        return f"{sign}${n:,.0f}"
+    if unit == "count":
+        return f"{value:,.0f}"
+    return f"{value:,.0f}"
+
+
 def _effective_confidence(report: Confidence, critic: Confidence) -> Confidence:
     return min(report, critic, key=_CONF_ORDER.__getitem__)
+
+
+def _scorecard_indicator_value(result, key: str) -> float | None:
+    if result.scorecard is None:
+        return None
+    return next((i.value for i in result.scorecard.indicators if i.key == key), None)
+
+
+def _optimizer_exclusion_warnings(symbols: list[str]) -> list[str]:
+    return [f"{symbol}: {OPTIMIZER_EXCLUSION_WARNING}" for symbol in symbols]
 
 
 def _error_partial(
@@ -122,6 +159,7 @@ def _error_partial(
 templates.env.filters["fmt_num"] = _fmt_num
 templates.env.filters["fmt_cap"] = _fmt_cap
 templates.env.filters["pct"] = _pct
+templates.env.filters["indicator_value"] = _fmt_indicator_value
 
 app = FastAPI(title="Stock Research")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -191,25 +229,50 @@ def research_page(request: Request, symbol: str, mode: str = "thorough"):
 
 
 @app.get("/research/{symbol}/report", response_class=HTMLResponse)
-async def research_report(request: Request, symbol: str, mode: str = "thorough", fresh: int = 0):
+async def research_report(
+    request: Request,
+    symbol: str,
+    mode: str = "thorough",
+    fresh: int = 0,
+    profile: Literal["penny", "largecap"] | None = Query(default=None),
+):
     sym = symbol.upper()
     mode = "cheap" if mode == "cheap" else "thorough"
     try:
         async with with_run("research", sym, mode) as ctx:
-            result = await research_ticker_cached(sym, mode, fresh=bool(fresh))
+            result = await research_ticker_cached(
+                sym,
+                mode,
+                profile_override=profile,
+                fresh=bool(fresh),
+            )
         print("\n" + format_event(ctx.extra["_event"]), file=sys.stderr)
         valuation = await value_holdings()
         effective = _effective_confidence(
             result.report.confidence, result.critique.suggested_confidence
         )
         current_weight = next((h.weight for h in valuation.holdings if h.symbol == sym), None)
+        result_profile = PROFILES[result.profile]
+        adv_dollars = _scorecard_indicator_value(result, "avg_dollar_volume_20d")
         sizing = suggest_position_size(
-            valuation.total_with_cash, effective, symbol=sym, current_weight=current_weight
+            valuation.total_with_cash,
+            effective,
+            symbol=sym,
+            current_weight=current_weight,
+            profile=result_profile,
+            adv_dollars=adv_dollars,
         )
         return templates.TemplateResponse(
             request,
             "partials/research_report.html",
-            {"result": result, "mode": mode, "watched": db.has(sym), "sizing": sizing},
+            {
+                "result": result,
+                "mode": mode,
+                "watched": db.has(sym),
+                "sizing": sizing,
+                "profile_label": result_profile.label,
+                "profile_override": profile,
+            },
         )
     except BudgetExceededError as e:
         return _error_partial(
@@ -223,6 +286,8 @@ async def research_report(request: Request, symbol: str, mode: str = "thorough",
     except Exception:
         logger.exception("research failed for %s", sym)
         retry_url = f"/research/{sym}/report?mode={mode}&fresh={fresh}"
+        if profile:
+            retry_url += f"&profile={profile}"
         return _error_partial(request, "Research failed — see server logs.", retry_url)
 
 
@@ -266,7 +331,11 @@ async def portfolio_page(request: Request):
     except Exception:
         logger.warning("nav snapshot write failed", exc_info=True)
     optimizer_rows = [
-        {"symbol": v.symbol, "value": round(v.market_value, 2) if v.market_value is not None else None}
+        {
+            "symbol": v.symbol,
+            "value": round(v.market_value, 2) if v.market_value is not None else None,
+            "price": v.price,
+        }
         for v in valuation.holdings
     ]
     health = assess_portfolio_health(valuation)
@@ -640,30 +709,55 @@ async def portfolio_optimize(request: Request):
     form = await request.form()
     symbols = form.getlist("symbol")
     values = form.getlist("value")
+    prices = form.getlist("price")
     objective = form.get("objective", "max_sharpe")
+    excluded_symbols: list[str] = []
 
     # If no symbols passed via form, seed from holdings
     if not any((s or "").strip() for s in symbols):
         valuation = await value_holdings()
-        holdings = [
-            Holding(symbol=v.symbol, value=v.market_value)
-            for v in valuation.holdings
-            if v.market_value
-        ]
+        holdings = []
+        for v in valuation.holdings:
+            if v.price is not None and v.price < PENNY_PRICE_MAX:
+                excluded_symbols.append(v.symbol)
+                continue
+            if v.market_value:
+                holdings.append(Holding(symbol=v.symbol, value=v.market_value))
     else:
         holdings: list[Holding] = []
-        for sym, val in zip(symbols, values):
+        for index, (sym, val) in enumerate(zip(symbols, values)):
             sym = (sym or "").strip().upper()
             if not sym:
+                continue
+            raw_price = prices[index] if index < len(prices) else ""
+            price = float(raw_price) if raw_price and raw_price.strip() else None
+            if price is not None and price < PENNY_PRICE_MAX:
+                excluded_symbols.append(sym)
                 continue
             value = float(val) if val and val.strip() else None
             holdings.append(Holding(symbol=sym, value=value))
 
+    exclusion_warnings = _optimizer_exclusion_warnings(excluded_symbols)
+
     if not holdings:
+        reason = OPTIMIZER_EXCLUSION_WARNING if excluded_symbols else "No symbols provided."
         return templates.TemplateResponse(
             request,
             "partials/portfolio_results.html",
-            {"available": False, "reason": "No symbols provided."},
+            {"available": False, "reason": reason, "warnings": exclusion_warnings},
+        )
+
+    # Only exclusions force this skip — a lone holding with nothing excluded keeps
+    # the optimizer's existing single-asset (100%) path.
+    if excluded_symbols and len({h.symbol for h in holdings}) < 2:
+        return templates.TemplateResponse(
+            request,
+            "partials/portfolio_results.html",
+            {
+                "available": False,
+                "reason": OPTIMIZER_EXCLUSION_WARNING,
+                "warnings": exclusion_warnings,
+            },
         )
 
     req = OptimizeRequest(holdings=holdings, objective=objective)
@@ -671,15 +765,22 @@ async def portfolio_optimize(request: Request):
         result = await anyio.to_thread.run_sync(optimize, req)
     except NoDataError as e:
         return templates.TemplateResponse(
-            request, "partials/portfolio_results.html", {"available": False, "reason": str(e)}
+            request,
+            "partials/portfolio_results.html",
+            {"available": False, "reason": str(e), "warnings": exclusion_warnings},
         )
     except Exception as e:
         return templates.TemplateResponse(
             request,
             "partials/portfolio_results.html",
-            {"available": False, "reason": f"Optimization failed: {e}"},
+            {
+                "available": False,
+                "reason": f"Optimization failed: {e}",
+                "warnings": exclusion_warnings,
+            },
         )
     drift = analyze_drift(result)
+    result.warnings = exclusion_warnings + result.warnings
     return templates.TemplateResponse(
         request,
         "partials/portfolio_results.html",

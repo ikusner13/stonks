@@ -7,6 +7,7 @@ import json
 from pydantic_ai import Agent
 
 from ..indicators.schemas import IndicatorScorecard
+from ..profiles.base import Profile
 from ..schemas import TickerData, TickerReport
 from .provider import workhorse_model, workhorse_settings
 from .usage import run_tracked
@@ -32,11 +33,9 @@ def _get_agent() -> Agent[None, TickerReport]:
     return _agent
 
 
-async def research_ticker(
-    symbol: str, data: TickerData, scorecard: IndicatorScorecard
-) -> TickerReport:
-    """First-pass structured report from the workhorse model, grounded in
-    ``data`` and the deterministic ``scorecard``."""
+def build_research_prompt(
+    symbol: str, data: TickerData, scorecard: IndicatorScorecard, profile: Profile
+) -> str:
     prompt = f"""Produce a structured research report for {symbol}.
 
 Below is the ONLY ground truth you may use. Treat it as authoritative and complete; do not supplement it with outside knowledge of specific numbers.
@@ -49,8 +48,23 @@ INDICATOR SCORECARD (computed deterministically by code):
 ```json
 {json.dumps(scorecard.model_dump(), indent=2)}
 ```
-
+"""
+    if profile.research_stance:
+        prompt += f"""
+PROFILE CONTEXT:
+{profile.research_stance}
+"""
+    prompt += """
 Restate the relevant figures in key_metrics, explain why each matters, and build a balanced bull/bear thesis. Where data is missing, note it in things_to_investigate and let it lower your confidence."""
+    return prompt
+
+
+async def research_ticker(
+    symbol: str, data: TickerData, scorecard: IndicatorScorecard, profile: Profile
+) -> TickerReport:
+    """First-pass structured report from the workhorse model, grounded in
+    ``data`` and the deterministic ``scorecard``."""
+    prompt = build_research_prompt(symbol, data, scorecard, profile)
 
     result = await run_tracked("research", _get_agent(), prompt, workhorse_settings())
     return result.output

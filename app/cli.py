@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from enum import Enum
 
 import typer
 
@@ -17,6 +18,11 @@ from .llm.usage import format_event, format_rollup, with_run
 from .schemas import Critique, DiscoveryResult, ResearchResult, TickerData, TickerReport
 
 app = typer.Typer(add_completion=False, help="LLM-driven equity research assistant.")
+
+
+class ProfileOption(str, Enum):
+    penny = "penny"
+    largecap = "largecap"
 
 
 def _fmt_num(n: float | None) -> str:
@@ -90,6 +96,11 @@ def research(
     symbol: str,
     cheap: bool = typer.Option(False, "--cheap", help="Workhorse critic, skip revision."),
     fresh: bool = typer.Option(False, "--fresh", help="Bypass the data + report caches."),
+    profile: ProfileOption | None = typer.Option(
+        None,
+        "--profile",
+        help="Override automatic research profile selection.",
+    ),
 ) -> None:
     """Deep-dive one ticker through the research + critic pipeline."""
     ticker = symbol.upper()
@@ -98,7 +109,12 @@ def research(
 
     async def run() -> ResearchResult:
         async with with_run("research", ticker, mode) as ctx:
-            res = await research_ticker_cached(ticker, mode, fresh=fresh)
+            res = await research_ticker_cached(
+                ticker,
+                mode,
+                profile_override=profile.value if profile else None,
+                fresh=fresh,
+            )
             ctx.extra["_res"] = res
         _on_event(ctx)
         return res

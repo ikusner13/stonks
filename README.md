@@ -75,6 +75,10 @@ your saved holdings and watchlist entries are gone for good.
   (market cap, P/E) is enforced in code, not trusted from the model.
 - **Research** — a full report for one ticker: summary, bull/bear thesis, key
   metrics, an indicator-scorecard read, risks, and open questions.
+  - **Profiles**: the app automatically selects `largecap` or `penny` research
+    policy from exchange, price, and market cap; override with
+    `uv run stocks research SYM --profile penny|largecap` or
+    `/research/SYM/report?profile=penny|largecap`.
   - **Thorough mode** (default): workhorse-model draft → premium-model audit →
     if the audit finds fabrication or a medium/high-severity issue, a premium
     revision → a final premium re-critique. Confidence is clamped to the

@@ -34,3 +34,5 @@ def test_old_cached_research_result_json_still_validates():
     assert result.scorecard is None
     assert result.confidence_assessment is None
     assert result.report.indicator_view == ""
+    assert result.profile == "largecap"
+    assert result.profile_reason == ""
