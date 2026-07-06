@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ApiError, apiErrorMessage } from "./errors";
+import { apiErrorMessage, req } from "./errors";
 import { client } from "./client";
 import { queryKeys } from "./queryKeys";
 import type { components } from "./schema";
@@ -10,22 +10,14 @@ type TargetsUpdate = components["schemas"]["TargetsUpdate"];
 type WhatIfRequest = components["schemas"]["WhatIfRequest"];
 type OptimizeApiRequest = components["schemas"]["OptimizeApiRequest"];
 
-function unwrap<T>(data: T | undefined, error: unknown, response: Response): T {
-  if (error) throw new ApiError(response.status, error);
-  if (data === undefined) throw new ApiError(response.status, { message: "Empty response." });
-  return data;
-}
-
 function notifyError(error: unknown) {
   toast.error(apiErrorMessage(error));
 }
 
 export function useDiscoverMutation() {
   return useMutation({
-    mutationFn: async (body: DiscoverRequest) => {
-      const { data, error, response } = await client.POST("/api/discover", { body });
-      return unwrap(data, error, response);
-    },
+    mutationFn: (body: DiscoverRequest) =>
+      req("POST /api/discover", () => client.POST("/api/discover", { body })),
     onError: notifyError,
   });
 }
@@ -33,12 +25,11 @@ export function useDiscoverMutation() {
 export function useWatchMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ symbol, watched }: { symbol: string; watched: boolean }) => {
+    mutationFn: ({ symbol, watched }: { symbol: string; watched: boolean }) => {
       const path = { symbol: symbol.toUpperCase() };
-      const result = watched
-        ? await client.DELETE("/api/watchlist/{symbol}", { params: { path } })
-        : await client.PUT("/api/watchlist/{symbol}", { params: { path } });
-      return unwrap(result.data, result.error, result.response);
+      return watched
+        ? req(`DELETE /api/watchlist/${path.symbol}`, () => client.DELETE("/api/watchlist/{symbol}", { params: { path } }))
+        : req(`PUT /api/watchlist/${path.symbol}`, () => client.PUT("/api/watchlist/{symbol}", { params: { path } }));
     },
     onSuccess: async () => {
       await Promise.all([
@@ -54,10 +45,8 @@ export function useWatchMutation() {
 export function useBrokerSyncMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const { data, error, response } = await client.POST("/api/portfolio/broker/sync");
-      return unwrap(data, error, response);
-    },
+    mutationFn: () =>
+      req("POST /api/portfolio/broker/sync", () => client.POST("/api/portfolio/broker/sync")),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.portfolio.all });
     },
@@ -68,10 +57,8 @@ export function useBrokerSyncMutation() {
 export function useTargetsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (body: TargetsUpdate) => {
-      const { data, error, response } = await client.PUT("/api/portfolio/targets", { body });
-      return unwrap(data, error, response);
-    },
+    mutationFn: (body: TargetsUpdate) =>
+      req("PUT /api/portfolio/targets", () => client.PUT("/api/portfolio/targets", { body })),
     onSuccess: async (data) => {
       queryClient.setQueryData(queryKeys.portfolio.targets(), data);
       await queryClient.invalidateQueries({ queryKey: queryKeys.portfolio.all });
@@ -82,20 +69,16 @@ export function useTargetsMutation() {
 
 export function useWhatIfMutation() {
   return useMutation({
-    mutationFn: async (body: WhatIfRequest) => {
-      const { data, error, response } = await client.POST("/api/portfolio/whatif", { body });
-      return unwrap(data, error, response);
-    },
+    mutationFn: (body: WhatIfRequest) =>
+      req("POST /api/portfolio/whatif", () => client.POST("/api/portfolio/whatif", { body })),
     onError: notifyError,
   });
 }
 
 export function useOptimizeMutation() {
   return useMutation({
-    mutationFn: async (body: OptimizeApiRequest) => {
-      const { data, error, response } = await client.POST("/api/portfolio/optimize", { body });
-      return unwrap(data, error, response);
-    },
+    mutationFn: (body: OptimizeApiRequest) =>
+      req("POST /api/portfolio/optimize", () => client.POST("/api/portfolio/optimize", { body })),
     onError: notifyError,
   });
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtCap, fmtIndicatorValue, fmtNum, pct } from "./format";
+import { fmtCap, fmtIndicatorValue, fmtNum, fmtUsd, fmtUsd0, pct } from "./format";
 
 describe("fmtNum", () => {
   it("formats null/undefined as n/a", () => {
@@ -32,6 +32,31 @@ describe("fmtCap", () => {
     expect(fmtCap(2.3e9)).toBe("$2.30B");
     expect(fmtCap(4.5e6)).toBe("$4.50M");
     expect(fmtCap(1234)).toBe("$1,234");
+  });
+});
+
+describe("fmtUsd", () => {
+  it("formats null/undefined as n/a", () => {
+    expect(fmtUsd(null)).toBe("n/a");
+    expect(fmtUsd(undefined)).toBe("n/a");
+  });
+
+  it("formats with 2dp and comma grouping", () => {
+    expect(fmtUsd(10534.55)).toBe("$10,534.55");
+    expect(fmtUsd(-1234.5)).toBe("-$1,234.50");
+    expect(fmtUsd(0)).toBe("$0.00");
+  });
+});
+
+describe("fmtUsd0", () => {
+  it("formats null/undefined as n/a", () => {
+    expect(fmtUsd0(null)).toBe("n/a");
+  });
+
+  it("formats whole dollars with comma grouping", () => {
+    expect(fmtUsd0(10534.55)).toBe("$10,535");
+    expect(fmtUsd0(-1234.5)).toBe("-$1,235");
+    expect(fmtUsd0(0)).toBe("$0");
   });
 });
 

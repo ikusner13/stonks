@@ -19,9 +19,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ErrorBlock, Panel, SectionSkeleton, Spinner } from "@/components/common";
+import { ErrorBlock, Panel, SectionSkeleton, Spinner, TableSkeleton } from "@/components/common";
 import {
   useBrokerSyncMutation,
   useOptimizeMutation,
@@ -42,13 +43,12 @@ import {
   useTransactionsQuery,
   useTwrQuery,
 } from "@/api/queries";
-import { fmtCap, fmtNum, pct } from "@/lib/format";
+import { fmtNum, fmtUsd, fmtUsd0, pct } from "@/lib/format";
 import { optimizerWeightsToTargets } from "@/lib/optimizer";
 import type { components } from "@/api/schema";
 
 type HoldingValuation = components["schemas"]["HoldingValuation"];
 type TargetRow = components["schemas"]["TargetRow"];
-type OptimizerRow = components["schemas"]["OptimizerRow"];
 
 const PIE_COLORS = ["#22c55e", "#38bdf8", "#f59e0b", "#a78bfa", "#f43f5e", "#14b8a6", "#eab308"];
 
@@ -99,24 +99,42 @@ function OverviewTab() {
   const regime = useRegimeQuery();
   const correlation = useCorrelationQuery();
 
-  if (summary.isLoading) return <SectionSkeleton rows={8} />;
   if (summary.error) return <ErrorBlock error={summary.error} onRetry={() => void summary.refetch()} />;
-  if (!summary.data) return null;
-  const valuation = summary.data.valuation;
+  const valuation = summary.data?.valuation;
 
   return (
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-4">
         <Panel title="Total value" className="md:col-span-2">
-          <div className="font-serif text-4xl font-semibold">{fmtCap(valuation.total_with_cash)}</div>
-          <p className="mt-2 text-sm text-muted-foreground">Cash {fmtCap(valuation.cash)} ({pct(valuation.cash_pct)})</p>
+          {summary.isLoading || !valuation ? (
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-40" />
+              <Skeleton className="h-4 w-36" />
+            </div>
+          ) : (
+            <>
+              <div className="font-serif text-4xl font-semibold">{fmtUsd(valuation.total_with_cash)}</div>
+              <p className="mt-2 text-sm text-muted-foreground">Cash {fmtUsd(valuation.cash)} ({pct(valuation.cash_pct)})</p>
+            </>
+          )}
         </Panel>
         <Panel title="Unrealized P/L">
-          <div className="text-2xl font-semibold">{fmtCap(valuation.total_unrealized_pl)}</div>
-          <p className="text-sm text-muted-foreground">{pct(valuation.total_unrealized_pl_pct)}</p>
+          {summary.isLoading || !valuation ? (
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-28" />
+              <Skeleton className="h-4 w-16" />
+            </div>
+          ) : (
+            <>
+              <div className="text-2xl font-semibold">{fmtUsd(valuation.total_unrealized_pl)}</div>
+              <p className="text-sm text-muted-foreground">{pct(valuation.total_unrealized_pl_pct)}</p>
+            </>
+          )}
         </Panel>
         <Panel title="Health">
-          {summary.data.health ? (
+          {summary.isLoading ? (
+            <Skeleton className="h-20 w-full" />
+          ) : summary.data?.health ? (
             <div className="space-y-1 text-sm">
               <Badge>{summary.data.health.concentration_level}</Badge>
               <div>{summary.data.health.diversification_note}</div>
@@ -132,22 +150,35 @@ function OverviewTab() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Allocation">
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={summary.data.allocation} dataKey="value" nameKey="label" innerRadius={55} outerRadius={95}>
-                  {summary.data.allocation.map((slice, index) => (
-                    <Cell key={slice.label} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => fmtCap(Number(value))} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+          {summary.isLoading ? (
+            <Skeleton className="h-72 w-full" />
+          ) : summary.data ? (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={summary.data.allocation} dataKey="value" nameKey="label" innerRadius={55} outerRadius={95}>
+                    {summary.data.allocation.map((slice, index) => (
+                      <Cell key={slice.label} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => fmtUsd(Number(value))} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : null}
         </Panel>
 
         <Panel title="NAV">
-          {nav.isLoading ? <SectionSkeleton rows={4} /> : null}
+          {nav.isLoading ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-4">
+                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-8 w-16" />
+              </div>
+              <Skeleton className="h-56 w-full" />
+            </div>
+          ) : null}
           {nav.error ? <ErrorBlock error={nav.error} onRetry={() => void nav.refetch()} /> : null}
           {nav.data ? (
             <>
@@ -161,8 +192,8 @@ function OverviewTab() {
                   <AreaChart data={nav.data.series.points}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                     <XAxis dataKey="day" />
-                    <YAxis tickFormatter={(value) => fmtCap(Number(value))} />
-                    <Tooltip formatter={(value) => fmtCap(Number(value))} />
+                    <YAxis tickFormatter={(value) => fmtUsd0(Number(value))} />
+                    <Tooltip formatter={(value) => fmtUsd(Number(value))} />
                     <Area dataKey="total_with_cash" stroke="#22c55e" fill="#22c55e" fillOpacity={0.2} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -172,31 +203,33 @@ function OverviewTab() {
         </Panel>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Regime signal">
-          {regime.isLoading ? <SectionSkeleton rows={3} /> : null}
-          {regime.error ? <ErrorBlock error={regime.error} onRetry={() => void regime.refetch()} /> : null}
-          {regime.data?.signal ? (
-            <div className="space-y-2 text-sm">
-              <Badge>{regime.data.signal.level}</Badge>
-              <p>{regime.data.signal.note}</p>
-              <p className="text-muted-foreground">
-                Short vol {pct(regime.data.signal.short_vol)}, long vol {pct(regime.data.signal.long_vol)}, ratio{" "}
-                {fmtNum(regime.data.signal.vol_ratio)}
-              </p>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">Add holdings to compute a regime signal.</p>
-          )}
-        </Panel>
-        <Panel title="Correlation">
-          {correlation.isLoading ? <SectionSkeleton rows={4} /> : null}
-          {correlation.error ? <ErrorBlock error={correlation.error} onRetry={() => void correlation.refetch()} /> : null}
-          {correlation.data ? <CorrelationMatrix data={correlation.data} /> : null}
-        </Panel>
-      </div>
+      {summary.data ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel title="Regime signal">
+            {regime.isLoading ? <SectionSkeleton rows={3} /> : null}
+            {regime.error ? <ErrorBlock error={regime.error} onRetry={() => void regime.refetch()} /> : null}
+            {regime.data?.signal ? (
+              <div className="space-y-2 text-sm">
+                <Badge>{regime.data.signal.level}</Badge>
+                <p>{regime.data.signal.note}</p>
+                <p className="text-muted-foreground">
+                  Short vol {pct(regime.data.signal.short_vol)}, long vol {pct(regime.data.signal.long_vol)}, ratio{" "}
+                  {fmtNum(regime.data.signal.vol_ratio)}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Add holdings to compute a regime signal.</p>
+            )}
+          </Panel>
+          <Panel title="Correlation">
+            {correlation.isLoading ? <SectionSkeleton rows={4} /> : null}
+            {correlation.error ? <ErrorBlock error={correlation.error} onRetry={() => void correlation.refetch()} /> : null}
+            {correlation.data ? <CorrelationMatrix data={correlation.data} /> : null}
+          </Panel>
+        </div>
+      ) : null}
 
-      <p className="text-xs text-muted-foreground">{summary.data.disclaimer}</p>
+      {summary.data ? <p className="text-xs text-muted-foreground">{summary.data.disclaimer}</p> : null}
     </div>
   );
 }
@@ -207,104 +240,134 @@ function HoldingsTab() {
   const brokerSync = useBrokerSyncMutation();
   const lastSync = brokerSync.data?.last_sync ?? meta.data?.last_broker_sync ?? "n/a";
 
+  if (holdings.error) return <ErrorBlock error={holdings.error} onRetry={() => void holdings.refetch()} />;
+  const valuation = holdings.data?.valuation;
+
   return (
     <div className="space-y-5">
-      {holdings.isLoading ? <SectionSkeleton rows={8} /> : null}
-      {holdings.error ? <ErrorBlock error={holdings.error} onRetry={() => void holdings.refetch()} /> : null}
-      {holdings.data ? (
-        <>
-          <div className="grid gap-4 md:grid-cols-3">
-            <Panel title="Total value">
-              <div className="text-2xl font-semibold">{fmtCap(holdings.data.valuation.total_with_cash)}</div>
-            </Panel>
-            <Panel title="Cash">
-              <div className="text-2xl font-semibold">{fmtCap(holdings.data.valuation.cash)}</div>
-              <p className="text-sm text-muted-foreground">{pct(holdings.data.valuation.cash_pct)}</p>
-            </Panel>
-            <Panel title="Broker sync">
-              <div className="space-y-3">
-                {meta.data?.broker_sync_configured ? (
-                  <Button variant="outline" disabled={brokerSync.isPending} onClick={() => brokerSync.mutate()}>
-                    {brokerSync.isPending ? <Spinner /> : <Download />}
-                    Sync
-                  </Button>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Not configured.</p>
-                )}
-                <div className="text-sm text-muted-foreground">
-                  Last sync {lastSync}
-                  {brokerSync.data ? `; imported ${fmtNum(brokerSync.data.result.imported_activities)} activities` : ""}
-                </div>
-              </div>
-            </Panel>
+      <div className="grid gap-4 md:grid-cols-3">
+        <Panel title="Total value">
+          {holdings.isLoading || !valuation ? (
+            <Skeleton className="h-8 w-28" />
+          ) : (
+            <div className="text-2xl font-semibold">{fmtUsd(valuation.total_with_cash)}</div>
+          )}
+        </Panel>
+        <Panel title="Cash">
+          {holdings.isLoading || !valuation ? (
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-28" />
+              <Skeleton className="h-4 w-16" />
+            </div>
+          ) : (
+            <>
+              <div className="text-2xl font-semibold">{fmtUsd(valuation.cash)}</div>
+              <p className="text-sm text-muted-foreground">{pct(valuation.cash_pct)}</p>
+            </>
+          )}
+        </Panel>
+        <Panel title="Broker sync">
+          <div className="space-y-3">
+            {meta.data?.broker_sync_configured ? (
+              <Button variant="outline" disabled={brokerSync.isPending} onClick={() => brokerSync.mutate()}>
+                {brokerSync.isPending ? <Spinner /> : <Download />}
+                Sync
+              </Button>
+            ) : meta.isLoading ? (
+              <Skeleton className="h-9 w-24" />
+            ) : (
+              <p className="text-sm text-muted-foreground">Not configured.</p>
+            )}
+            <div className="text-sm text-muted-foreground">
+              Last sync {lastSync}
+              {brokerSync.data ? `; imported ${fmtNum(brokerSync.data.result.imported_activities)} activities` : ""}
+            </div>
           </div>
-          <Panel title="Holdings">
-            <HoldingsTable holdings={holdings.data.valuation.holdings} />
-          </Panel>
-        </>
-      ) : null}
+        </Panel>
+      </div>
+      <Panel title="Holdings">
+        {holdings.isLoading || !holdings.data ? (
+          <TableSkeleton headers={["Symbol", "Shares", "Price", "Market value", "Weight", "Avg cost", "P/L"]} />
+        ) : (
+          <HoldingsTable holdings={holdings.data.valuation.holdings} />
+        )}
+      </Panel>
     </div>
   );
 }
 
+const LEDGER_HEADERS = ["Date", "Side", "Symbol", "Shares", "Price", "Amount", "Realized P/L", "Note"];
+
 function TransactionsTab() {
   const transactions = useTransactionsQuery();
 
+  if (transactions.error) return <ErrorBlock error={transactions.error} onRetry={() => void transactions.refetch()} />;
+  const returns = transactions.data?.returns;
+
   return (
     <div className="space-y-5">
-      {transactions.isLoading ? <SectionSkeleton rows={8} /> : null}
-      {transactions.error ? <ErrorBlock error={transactions.error} onRetry={() => void transactions.refetch()} /> : null}
-      {transactions.data ? (
-        <>
-          <div className="grid gap-4 md:grid-cols-4">
-            <Panel title="Deposits">
-              <div className="text-xl font-semibold">{fmtCap(transactions.data.returns.total_deposited)}</div>
-            </Panel>
-            <Panel title="Withdrawals">
-              <div className="text-xl font-semibold">{fmtCap(transactions.data.returns.total_withdrawn)}</div>
-            </Panel>
-            <Panel title="Dividends">
-              <div className="text-xl font-semibold">{fmtCap(transactions.data.returns.dividends_total)}</div>
-            </Panel>
-            <Panel title="Realized P/L">
-              <div className="text-xl font-semibold">{fmtCap(transactions.data.returns.realized_pl_total)}</div>
-            </Panel>
-          </div>
+      <div className="grid gap-4 md:grid-cols-4">
+        <Panel title="Deposits">
+          {transactions.isLoading || !returns ? (
+            <Skeleton className="h-7 w-24" />
+          ) : (
+            <div className="text-xl font-semibold">{fmtUsd(returns.total_deposited)}</div>
+          )}
+        </Panel>
+        <Panel title="Withdrawals">
+          {transactions.isLoading || !returns ? (
+            <Skeleton className="h-7 w-24" />
+          ) : (
+            <div className="text-xl font-semibold">{fmtUsd(returns.total_withdrawn)}</div>
+          )}
+        </Panel>
+        <Panel title="Dividends">
+          {transactions.isLoading || !returns ? (
+            <Skeleton className="h-7 w-24" />
+          ) : (
+            <div className="text-xl font-semibold">{fmtUsd(returns.dividends_total)}</div>
+          )}
+        </Panel>
+        <Panel title="Realized P/L">
+          {transactions.isLoading || !returns ? (
+            <Skeleton className="h-7 w-24" />
+          ) : (
+            <div className="text-xl font-semibold">{fmtUsd(returns.realized_pl_total)}</div>
+          )}
+        </Panel>
+      </div>
 
-          <Panel title="Ledger">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Side</TableHead>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Shares</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Realized P/L</TableHead>
-                    <TableHead>Note</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {transactions.data.transactions.map((txn) => (
-                    <TableRow key={txn.id ?? `${txn.ts}-${txn.side}-${txn.amount}`}>
-                      <TableCell>{txn.ts}</TableCell>
-                      <TableCell>{txn.side}</TableCell>
-                      <TableCell>{txn.symbol ?? "n/a"}</TableCell>
-                      <TableCell>{fmtNum(txn.shares)}</TableCell>
-                      <TableCell>{fmtCap(txn.price)}</TableCell>
-                      <TableCell>{fmtCap(txn.amount)}</TableCell>
-                      <TableCell>{fmtCap(txn.realized_pl)}</TableCell>
-                      <TableCell>{txn.note}</TableCell>
-                    </TableRow>
+      <Panel title="Ledger">
+        {transactions.isLoading || !transactions.data ? (
+          <TableSkeleton headers={LEDGER_HEADERS} />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {LEDGER_HEADERS.map((header) => (
+                    <TableHead key={header}>{header}</TableHead>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Panel>
-        </>
-      ) : null}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {transactions.data.transactions.map((txn) => (
+                  <TableRow key={txn.id ?? `${txn.ts}-${txn.side}-${txn.amount}`}>
+                    <TableCell>{txn.ts}</TableCell>
+                    <TableCell>{txn.side}</TableCell>
+                    <TableCell>{txn.symbol ?? "n/a"}</TableCell>
+                    <TableCell>{fmtNum(txn.shares)}</TableCell>
+                    <TableCell>{fmtUsd(txn.price)}</TableCell>
+                    <TableCell>{fmtUsd(txn.amount)}</TableCell>
+                    <TableCell>{fmtUsd(txn.realized_pl)}</TableCell>
+                    <TableCell>{txn.note}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }
@@ -336,6 +399,13 @@ function PlanTab() {
       {targets.data ? (
         <Panel title="Target editor">
           <div className="space-y-2">
+            {rows.length > 0 ? (
+              <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-xs text-muted-foreground">
+                <span>Symbol</span>
+                <span>Target weight %</span>
+                <span />
+              </div>
+            ) : null}
             {rows.map((row, index) => (
               <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-2">
                 <Input
@@ -399,18 +469,16 @@ function AnalyticsTab() {
   const tax = useTaxQuery();
   const optimize = useOptimizeMutation();
   const updateTargets = useTargetsMutation();
-  const [optimizerRows, setOptimizerRows] = useState<OptimizerRow[]>([]);
   const [objective, setObjective] = useState<"max_sharpe" | "min_risk">("max_sharpe");
   const [showTearsheet, setShowTearsheet] = useState(false);
 
-  useEffect(() => {
-    if (summary.data) setOptimizerRows(summary.data.optimizer_seed);
-  }, [summary.data]);
+  const seed = summary.data?.optimizer_seed ?? [];
+  const objectiveLabel = objective === "max_sharpe" ? "Max Sharpe" : "Min risk";
 
   function runOptimizer() {
     optimize.mutate({
       objective,
-      holdings: optimizerRows.map((row) => ({
+      holdings: seed.map((row) => ({
         symbol: row.symbol,
         value: row.value,
         price: row.price,
@@ -466,7 +534,7 @@ function AnalyticsTab() {
               headers={["Symbol", "Unrealized P/L", "Unrealized %", "Wash risk", "Note"]}
               rows={tax.data.harvest_candidates.map((item) => [
                 item.symbol,
-                fmtCap(item.unrealized_pl),
+                fmtUsd(item.unrealized_pl),
                 pct(item.unrealized_pct),
                 item.wash_sale_risk ? "yes" : "no",
                 item.note,
@@ -478,7 +546,7 @@ function AnalyticsTab() {
                 item.symbol,
                 item.loss_sale_date,
                 item.repurchase_date,
-                fmtCap(item.realized_pl),
+                fmtUsd(item.realized_pl),
                 item.note,
               ])}
             />
@@ -489,40 +557,28 @@ function AnalyticsTab() {
 
       <Panel title="Optimizer">
         <div className="space-y-3">
-          {optimizerRows.map((row, index) => (
-            <div key={index} className="grid gap-2 md:grid-cols-3">
-              <Input value={row.symbol} onChange={(event) => setOptimizerRows(updateOptimizerRow(optimizerRows, index, { symbol: event.target.value }))} />
-              <Input
-                value={row.value ?? ""}
-                type="number"
-                step="any"
-                placeholder="Value"
-                onChange={(event) => setOptimizerRows(updateOptimizerRow(optimizerRows, index, { value: event.target.value ? Number(event.target.value) : null }))}
-              />
-              <Input
-                value={row.price ?? ""}
-                type="number"
-                step="any"
-                placeholder="Price"
-                onChange={(event) => setOptimizerRows(updateOptimizerRow(optimizerRows, index, { price: event.target.value ? Number(event.target.value) : null }))}
-              />
-            </div>
-          ))}
+          <p className="text-sm text-muted-foreground">Optimizes over your current holdings.</p>
+          {summary.isLoading ? (
+            <TableSkeleton headers={["Symbol", "Value", "Price"]} />
+          ) : seed.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No holdings to optimize.</p>
+          ) : (
+            <SimpleTable
+              headers={["Symbol", "Value", "Price"]}
+              rows={seed.map((row) => [row.symbol, fmtUsd(row.value), fmtUsd(row.price)])}
+            />
+          )}
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setOptimizerRows([...optimizerRows, { symbol: "", value: null, price: null }])}>
-              <Plus />
-              Add row
-            </Button>
             <Select value={objective} onValueChange={(value) => setObjective(value as "max_sharpe" | "min_risk")}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue>{objectiveLabel}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="max_sharpe">Max Sharpe</SelectItem>
                 <SelectItem value="min_risk">Min risk</SelectItem>
               </SelectContent>
             </Select>
-            <Button disabled={optimize.isPending} onClick={runOptimizer}>
+            <Button disabled={optimize.isPending || seed.length === 0} onClick={runOptimizer}>
               {optimize.isPending ? <Spinner /> : <Play />}
               Optimize
             </Button>
@@ -567,12 +623,12 @@ function HoldingsTable({ holdings }: { holdings: HoldingValuation[] }) {
                 </Link>
               </TableCell>
               <TableCell>{fmtNum(holding.shares)}</TableCell>
-              <TableCell>{fmtCap(holding.price)}</TableCell>
-              <TableCell>{fmtCap(holding.market_value)}</TableCell>
+              <TableCell>{fmtUsd(holding.price)}</TableCell>
+              <TableCell>{fmtUsd(holding.market_value)}</TableCell>
               <TableCell>{holding.weight == null ? "n/a" : pct(holding.weight)}</TableCell>
-              <TableCell>{fmtCap(holding.avg_cost)}</TableCell>
+              <TableCell>{fmtUsd(holding.avg_cost)}</TableCell>
               <TableCell>
-                {fmtCap(holding.unrealized_pl)} {holding.unrealized_pl_pct == null ? "" : `(${pct(holding.unrealized_pl_pct)})`}
+                {fmtUsd(holding.unrealized_pl)} {holding.unrealized_pl_pct == null ? "" : `(${pct(holding.unrealized_pl_pct)})`}
               </TableCell>
             </TableRow>
           ))}
@@ -633,7 +689,7 @@ function RebalanceTable({ items }: { items: components["schemas"]["RebalanceItem
         pct(item.target_weight),
         pct(item.drift),
         item.action,
-        fmtCap(item.delta_usd),
+        fmtUsd(item.delta_usd),
         fmtNum(item.delta_shares),
       ])}
     />
@@ -648,7 +704,7 @@ function ContributionTable({ items }: { items: components["schemas"]["Contributi
         item.symbol,
         pct(item.current_weight),
         pct(item.target_weight),
-        fmtCap(item.buy_usd),
+        fmtUsd(item.buy_usd),
         fmtNum(item.buy_shares),
         pct(item.after_weight),
       ])}
@@ -757,8 +813,4 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div className="mt-1 font-medium">{value}</div>
     </div>
   );
-}
-
-function updateOptimizerRow(rows: OptimizerRow[], index: number, patch: Partial<OptimizerRow>): OptimizerRow[] {
-  return rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row));
 }

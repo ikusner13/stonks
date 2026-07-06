@@ -13,10 +13,8 @@ const RouterDevtools = import.meta.env.DEV
     )
   : () => null;
 
-const navLinkClass = "border-b-2 border-transparent pb-1 text-sm font-medium text-neutral-400 hover:text-neutral-100";
-const navLinkActiveProps = {
-  className: "border-b-2 border-emerald-400 pb-1 text-sm font-medium text-neutral-100",
-};
+const navLinkClass =
+  "border-b-2 border-transparent pb-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground data-[status=active]:border-emerald-400 data-[status=active]:text-foreground";
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -32,18 +30,13 @@ function RootComponent() {
               stonks
             </Link>
             <div className="flex gap-4">
-              <Link
-                to="/"
-                className={navLinkClass}
-                activeOptions={{ exact: true }}
-                activeProps={navLinkActiveProps}
-              >
+              <Link to="/" className={navLinkClass} activeOptions={{ exact: true }}>
                 Discover
               </Link>
-              <Link to="/watchlist" className={navLinkClass} activeProps={navLinkActiveProps}>
+              <Link to="/watchlist" className={navLinkClass}>
                 Watchlist
               </Link>
-              <Link to="/portfolio" className={navLinkClass} activeProps={navLinkActiveProps}>
+              <Link to="/portfolio" className={navLinkClass}>
                 Portfolio
               </Link>
             </div>

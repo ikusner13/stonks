@@ -31,6 +31,20 @@ export function pct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
+/** null -> "n/a"; else -$?1,234.56 (always 2dp, comma-grouped). */
+export function fmtUsd(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "n/a";
+  const sign = n < 0 ? "-" : "";
+  return `${sign}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Same but whole dollars (for axis ticks / big totals): -$?1,235. */
+export function fmtUsd0(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "n/a";
+  const sign = n < 0 ? "-" : "";
+  return `${sign}$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
 export type IndicatorUnit = "pct" | "ratio" | "usd" | "count" | string;
 
 /** null -> "n/a"; pct -> pct(); ratio -> 2dp; usd -> sign + $ + scaled

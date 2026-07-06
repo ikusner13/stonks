@@ -1,40 +1,31 @@
 import { useQuery } from "@tanstack/react-query";
-import { ApiError } from "./errors";
+import { req } from "./errors";
 import { client } from "./client";
 import { queryKeys } from "./queryKeys";
-
-function unwrap<T>(data: T | undefined, error: unknown, response: Response): T {
-  if (error) throw new ApiError(response.status, error);
-  if (data === undefined) throw new ApiError(response.status, { message: "Empty response." });
-  return data;
-}
 
 export function useMetaQuery() {
   return useQuery({
     queryKey: queryKeys.meta.all,
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/meta");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/meta", () => client.GET("/api/meta")),
   });
 }
 
 export function useResearchQuery(symbol: string, mode: string, profile: "none" | "penny" | "largecap", fresh: number) {
   return useQuery({
     queryKey: queryKeys.research.detail(symbol.toUpperCase(), mode, profile, fresh),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/research/{symbol}", {
-        params: {
-          path: { symbol: symbol.toUpperCase() },
-          query: {
-            mode,
-            fresh,
-            profile: profile === "none" ? undefined : profile,
+    queryFn: () =>
+      req(`GET /api/research/${symbol.toUpperCase()}`, () =>
+        client.GET("/api/research/{symbol}", {
+          params: {
+            path: { symbol: symbol.toUpperCase() },
+            query: {
+              mode,
+              fresh,
+              profile: profile === "none" ? undefined : profile,
+            },
           },
-        },
-      });
-      return unwrap(data, error, response);
-    },
+        }),
+      ),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     retry: false,
@@ -44,120 +35,83 @@ export function useResearchQuery(symbol: string, mode: string, profile: "none" |
 export function useWatchlistQuery() {
   return useQuery({
     queryKey: queryKeys.watchlist.all,
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/watchlist");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/watchlist", () => client.GET("/api/watchlist")),
   });
 }
 
 export function usePortfolioSummaryQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.summary(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio", () => client.GET("/api/portfolio")),
   });
 }
 
 export function useHoldingsQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.holdings(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio/holdings");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio/holdings", () => client.GET("/api/portfolio/holdings")),
   });
 }
 
 export function useTransactionsQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.transactions(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio/transactions");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio/transactions", () => client.GET("/api/portfolio/transactions")),
   });
 }
 
 export function useTargetsQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.targets(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio/targets");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio/targets", () => client.GET("/api/portfolio/targets")),
   });
 }
 
 export function useRebalanceQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.rebalance(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio/rebalance");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio/rebalance", () => client.GET("/api/portfolio/rebalance")),
   });
 }
 
 export function useNavQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.nav(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio/nav");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio/nav", () => client.GET("/api/portfolio/nav")),
   });
 }
 
 export function useCorrelationQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.correlation(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio/correlation");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio/correlation", () => client.GET("/api/portfolio/correlation")),
   });
 }
 
 export function useRegimeQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.regime(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio/regime");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio/regime", () => client.GET("/api/portfolio/regime")),
   });
 }
 
 export function useTaxQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.tax(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio/tax");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio/tax", () => client.GET("/api/portfolio/tax")),
   });
 }
 
 export function usePerformanceQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.performance(),
-    queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/portfolio/performance");
-      return unwrap(data, error, response);
-    },
+    queryFn: () => req("GET /api/portfolio/performance", () => client.GET("/api/portfolio/performance")),
   });
 }
 
 export function useTwrQuery() {
   return useQuery({
     queryKey: queryKeys.portfolio.twr(),
-    queryFn: async () => {
-      const { data, error } = await client.GET("/api/portfolio/twr");
-      if (error) throw new ApiError(500, error);
-      return data ?? null;
-    },
+    queryFn: () => req("GET /api/portfolio/twr", () => client.GET("/api/portfolio/twr")),
   });
 }

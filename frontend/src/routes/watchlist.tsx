@@ -2,7 +2,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ErrorBlock, SectionSkeleton } from "@/components/common";
+import { ErrorBlock, TableSkeleton } from "@/components/common";
 import { useWatchMutation } from "@/api/mutations";
 import { useWatchlistQuery } from "@/api/queries";
 import { fmtNum } from "@/lib/format";
@@ -22,7 +22,7 @@ function WatchlistPage() {
         <p className="mt-2 text-muted-foreground">Saved symbols for follow-up research.</p>
       </div>
 
-      {watchlist.isLoading ? <SectionSkeleton rows={6} /> : null}
+      {watchlist.isLoading ? <TableSkeleton headers={["Symbol", "Value", ""]} /> : null}
       {watchlist.error ? <ErrorBlock error={watchlist.error} onRetry={() => void watchlist.refetch()} /> : null}
       {watchlist.data ? (
         <div className="rounded-lg border border-border">

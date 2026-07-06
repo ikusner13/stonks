@@ -2,7 +2,8 @@ import { RotateCcw } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiErrorMessage } from "@/api/errors";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ApiError, apiErrorMessage } from "@/api/errors";
 import { cn } from "@/lib/utils";
 
 export function ErrorBlock({
@@ -25,6 +26,11 @@ export function ErrorBlock({
     >
       <div className="font-medium">{title}</div>
       <p className="mt-1 text-muted-foreground">{apiErrorMessage(error)}</p>
+      {error instanceof ApiError ? (
+        <p className="mt-1 font-mono text-xs text-muted-foreground">
+          {error.request} &rarr; {error.status === 0 ? "network error (backend unreachable?)" : `HTTP ${error.status}`}
+        </p>
+      ) : null}
       {onRetry ? (
         <Button className="mt-3" size="sm" variant="outline" onClick={onRetry}>
           <RotateCcw />
@@ -41,6 +47,33 @@ export function SectionSkeleton({ rows = 4 }: { rows?: number }) {
       {Array.from({ length: rows }).map((_, index) => (
         <Skeleton key={index} className="h-9 w-full" />
       ))}
+    </div>
+  );
+}
+
+export function TableSkeleton({ headers, rows = 5 }: { headers: string[]; rows?: number }) {
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {headers.map((header) => (
+              <TableHead key={header}>{header}</TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: rows }).map((_, rowIndex) => (
+            <TableRow key={rowIndex}>
+              {headers.map((_, cellIndex) => (
+                <TableCell key={cellIndex}>
+                  <Skeleton className="h-4 w-full" />
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }

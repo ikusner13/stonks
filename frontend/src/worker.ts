@@ -21,7 +21,7 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-function proxyToApi(request: Request, url: URL, env: Env): Promise<Response> {
+async function proxyToApi(request: Request, url: URL, env: Env): Promise<Response> {
   const origin = env.API_ORIGIN ?? DEFAULT_API_ORIGIN;
   const target = new URL(url.pathname + url.search, origin);
 
@@ -31,14 +31,44 @@ function proxyToApi(request: Request, url: URL, env: Env): Promise<Response> {
     headers.set("CF-Access-Client-Secret", env.CF_ACCESS_CLIENT_SECRET);
   }
 
-  // Stream the request/response through untouched so SSE and large bodies
-  // are not buffered in memory.
-  return fetch(target, {
-    method: request.method,
-    headers,
-    body: request.body,
-    redirect: "manual",
-    // @ts-expect-error - required by workerd when streaming a request body through
-    duplex: "half",
-  });
+  let response: Response;
+  try {
+    // Stream the request/response through untouched so SSE and large bodies
+    // are not buffered in memory.
+    response = await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.body,
+      redirect: "manual",
+      // @ts-expect-error - required by workerd when streaming a request body through
+      duplex: "half",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return Response.json({ detail: { message: `API unreachable: ${message}` } }, { status: 502 });
+  }
+
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get("Location");
+    if (location) {
+      const resolved = new URL(location, target);
+      if (resolved.hostname.endsWith("cloudflareaccess.com")) {
+        return Response.json(
+          { detail: { message: "Cloudflare Access rejected the request (service token missing/expired?)." } },
+          { status: 502 },
+        );
+      }
+      if (resolved.origin === target.origin) {
+        const rewritten = new Headers(response.headers);
+        rewritten.set("Location", resolved.pathname + resolved.search);
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: rewritten,
+        });
+      }
+    }
+  }
+
+  return response;
 }
