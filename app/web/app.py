@@ -373,11 +373,6 @@ def watchlist_remove(symbol: str):
 @app.get("/portfolio", response_class=HTMLResponse)
 async def portfolio_page(request: Request):
     valuation = await value_holdings()
-    tax_signals = compute_tax_signals(
-        valuation,
-        list_transactions(limit=10_000),
-        datetime.now(UTC).date(),
-    )
     try:
         record_snapshot(valuation)
     except Exception:
@@ -402,7 +397,6 @@ async def portfolio_page(request: Request):
             "health": health,
             "allocation_slices": allocation_slices,
             "ds_disclaimer": DS_DISCLAIMER,
-            "tax_signals": tax_signals,
         },
     )
 
@@ -952,6 +946,27 @@ async def portfolio_regime(request: Request):
         logger.exception("portfolio volatility regime failed")
         return _error_partial(
             request, "Portfolio volatility regime failed — see server logs.", "/portfolio/regime"
+        )
+
+
+@app.get("/portfolio/tax", response_class=HTMLResponse)
+async def portfolio_tax(request: Request):
+    try:
+        valuation = await value_holdings()
+        tax_signals = compute_tax_signals(
+            valuation,
+            list_transactions(limit=10_000),
+            datetime.now(UTC).date(),
+        )
+        return templates.TemplateResponse(
+            request,
+            "partials/tax_signals.html",
+            {"tax_signals": tax_signals},
+        )
+    except Exception:
+        logger.exception("portfolio tax signals failed")
+        return _error_partial(
+            request, "Tax flags failed — see server logs.", "/portfolio/tax"
         )
 
 

@@ -200,57 +200,12 @@
   <section class="mt-10">
     <h2 class="mb-1 text-lg font-semibold">Transactions</h2>
     <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Optional journal entries apply to cash and holdings when saved.</p>
-    <div class="mb-5 rounded-2xl border border-[var(--line)] p-5">
-      <h3 class="mb-3 text-sm font-semibold">Tax flags</h3>
-      {% if tax_signals.harvest_candidates or tax_signals.repurchase_flags %}
-        {% if tax_signals.harvest_candidates %}
-          <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm">
-              <thead class="text-xs uppercase text-[var(--sea-ink-soft)]">
-                <tr>
-                  <th class="py-2 pr-4">Symbol</th>
-                  <th class="py-2 pr-4">Loss $</th>
-                  <th class="py-2 pr-4">Loss %</th>
-                  <th class="py-2 pr-4">Wash sale</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for candidate in tax_signals.harvest_candidates %}
-                  <tr class="border-t border-[var(--line)]">
-                    <td class="py-2 pr-4 font-semibold">{{ candidate.symbol }}</td>
-                    <td class="py-2 pr-4 text-red-700">${{ candidate.unrealized_pl | abs | fmt_num }}</td>
-                    <td class="py-2 pr-4 text-red-700">{{ candidate.unrealized_pct | abs | pct }}</td>
-                    <td class="py-2 pr-4">
-                      {% if candidate.wash_sale_risk %}
-                        <span class="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">Risk</span>
-                      {% else %}
-                        <span class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-2 py-0.5 text-xs font-semibold">Clear</span>
-                      {% endif %}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td colspan="4" class="pb-3 pr-4 text-xs text-[var(--sea-ink-soft)]">{{ candidate.note }}</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% endif %}
-
-        {% if tax_signals.repurchase_flags %}
-          <ul class="{% if tax_signals.harvest_candidates %}mt-4 {% endif %}space-y-2 text-sm">
-            {% for flag in tax_signals.repurchase_flags %}
-              <li class="border-t border-[var(--line)] pt-2">
-                <span class="font-semibold">{{ flag.symbol }}</span>:
-                {{ flag.note }}
-              </li>
-            {% endfor %}
-          </ul>
-        {% endif %}
-      {% else %}
-        <p class="text-sm text-[var(--sea-ink-soft)]">No tax flags.</p>
-      {% endif %}
-      <p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ tax_signals.disclaimer }}</p>
+    <div
+      class="mb-5 rounded-2xl border border-[var(--line)] p-5"
+      hx-get="/portfolio/tax"
+      hx-trigger="load, txns-changed from:body"
+      hx-swap="innerHTML">
+      <p class="text-sm text-[var(--sea-ink-soft)]">Loading tax flags…</p>
     </div>
     <div
       id="transactions-panel"

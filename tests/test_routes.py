@@ -476,6 +476,64 @@ def test_regime_partial_renders_signal(monkeypatch):
     assert "15.0%" in response.text
 
 
+def test_tax_partial_renders_flags(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.portfolio.transactions import Transaction
+
+    async def fake_value_holdings():
+        return PortfolioValuation(
+            holdings=[
+                HoldingValuation(
+                    symbol="AAA",
+                    shares=10,
+                    avg_cost=100,
+                    price=80,
+                    market_value=800,
+                    cost_value=1000,
+                    unrealized_pl=-200,
+                    unrealized_pl_pct=-0.2,
+                    weight=1.0,
+                ),
+            ],
+            total_value=800,
+            total_cost=1000,
+            total_unrealized_pl=-200,
+            total_unrealized_pl_pct=-0.2,
+            cash=0,
+            total_with_cash=800,
+            cash_pct=0,
+            asof="2026-07-05T00:00:00Z",
+        )
+
+    recent_buy = (datetime.now(UTC).date() - timedelta(days=5)).isoformat()
+
+    def fake_list_transactions(limit=200, symbol=None):
+        return [
+            Transaction(
+                ts=recent_buy,
+                side="buy",
+                symbol="AAA",
+                shares=1,
+                price=80,
+                amount=80,
+                realized_pl=None,
+            )
+        ]
+
+    monkeypatch.setattr(web_app, "value_holdings", fake_value_holdings)
+    monkeypatch.setattr(web_app, "list_transactions", fake_list_transactions)
+    client = TestClient(web_app.app)
+
+    response = client.get("/portfolio/tax")
+
+    assert response.status_code == 200
+    assert "Tax flags" in response.text
+    assert "AAA" in response.text
+    assert "Risk" in response.text
+    assert "not tax advice" in response.text
+
+
 def test_optimizer_partial_contains_frontier_polyline(monkeypatch):
     def fake_optimize(req):
         metrics = PortfolioMetrics(
