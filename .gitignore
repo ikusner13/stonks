@@ -18,3 +18,7 @@ eval_results/
 
 # Agent worktrees
 .claude/worktrees/
+
+# local agent/tool state
+.gstack/
+.impeccable/
