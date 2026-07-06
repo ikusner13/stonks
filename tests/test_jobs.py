@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,7 +15,9 @@ def _tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setattr(config, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
     monkeypatch.setattr(config, "DRIFT_ALERT_ENABLED", True)
     monkeypatch.setattr(config, "ALERTS_ENABLED", False)
+    monkeypatch.setattr(config, "REGIME_ALERT_ENABLED", False)
     monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", False)
+    monkeypatch.setattr(config, "BACKUP_DIR", None)
     db.init_db()
     init_targets_db()
 
@@ -48,6 +51,13 @@ def _valuation() -> PortfolioValuation:
         total_with_cash=10_000,
         cash_pct=0,
     )
+
+
+def _weighted_valuation() -> PortfolioValuation:
+    valuation = _valuation()
+    valuation.holdings[0].weight = 0.27
+    valuation.holdings[1].weight = 0.73
+    return valuation
 
 
 def _install_http_recorder(monkeypatch: pytest.MonkeyPatch, posts: list[dict], *, raises=False):
@@ -183,6 +193,32 @@ def test_build_jobs_registers_alert_jobs_when_enabled(monkeypatch: pytest.Monkey
 
     assert [job.name for job in registry] == ["price_alerts", "earnings_alerts"]
     assert [job.at_hour_utc for job in registry] == [22, 22]
+
+
+def test_build_jobs_registers_regime_alert_when_enabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
+    monkeypatch.setattr(config, "ALERTS_ENABLED", False)
+    monkeypatch.setattr(config, "REGIME_ALERT_ENABLED", True)
+    monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", False)
+    monkeypatch.setattr(config, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
+    monkeypatch.setattr(config, "ALERTS_HOUR_UTC", 22)
+
+    registry = jobs.build_jobs()
+
+    assert [job.name for job in registry] == ["regime_alert"]
+    assert registry[0].at_hour_utc == 22
+
+
+def test_build_jobs_registers_backup_when_configured(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", 21)
+    monkeypatch.setattr(config, "ALERTS_ENABLED", False)
+    monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", False)
+    monkeypatch.setattr(config, "BACKUP_DIR", str(tmp_path / "backups"))
+
+    registry = jobs.build_jobs()
+
+    assert [job.name for job in registry] == ["daily_portfolio", "db_backup"]
+    assert [job.at_hour_utc for job in registry] == [21, 21]
 
 
 def test_build_jobs_can_register_phase2_and_sec_alerts(monkeypatch: pytest.MonkeyPatch):
@@ -328,3 +364,98 @@ async def test_run_daily_jobs_returns_without_alert_when_valuation_fails(
     result = await jobs.run_daily_jobs()
 
     assert result == {"snapshot": False, "alert": ""}
+
+
+async def test_run_regime_alert_transition_into_elevated_fires_once(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    posts: list[dict] = []
+
+    async def value_holdings() -> PortfolioValuation:
+        return _weighted_valuation()
+
+    async def compute_regime_signal(weights):
+        assert weights == {"AAA": 0.27, "BBB": 0.73}
+        return SimpleNamespace(level="elevated", vol_ratio=1.8, short_vol=0.32, long_vol=0.18)
+
+    monkeypatch.setattr(jobs, "value_holdings", value_holdings)
+    monkeypatch.setattr(jobs, "compute_regime_signal", compute_regime_signal)
+    _install_http_recorder(monkeypatch, posts)
+
+    first = await jobs.run_regime_alert()
+    second = await jobs.run_regime_alert()
+
+    assert first["alert"] == (
+        "Volatility regime: ELEVATED — recent swings ~1.8x this portfolio's norm "
+        "(32% vs 18% annualized). Cautious time to add risk."
+    )
+    assert second == {"alert": ""}
+    assert len(posts) == 1
+    assert posts[0]["json"] == {"content": first["alert"]}
+    assert db.get_setting(jobs.LAST_REGIME_LEVEL_KEY) == "elevated"
+
+
+async def test_run_regime_alert_recovery_fires(monkeypatch: pytest.MonkeyPatch):
+    posts: list[dict] = []
+
+    async def value_holdings() -> PortfolioValuation:
+        return _weighted_valuation()
+
+    async def compute_regime_signal(weights):
+        return SimpleNamespace(level="normal", vol_ratio=1.1, short_vol=0.20, long_vol=0.18)
+
+    db.set_setting(jobs.LAST_REGIME_LEVEL_KEY, "elevated")
+    monkeypatch.setattr(jobs, "value_holdings", value_holdings)
+    monkeypatch.setattr(jobs, "compute_regime_signal", compute_regime_signal)
+    _install_http_recorder(monkeypatch, posts)
+
+    result = await jobs.run_regime_alert()
+
+    assert result == {"alert": "Volatility regime back to normal (1.1x norm)."}
+    assert posts[0]["json"] == {"content": result["alert"]}
+    assert db.get_setting(jobs.LAST_REGIME_LEVEL_KEY) == "normal"
+
+
+async def test_run_regime_alert_none_signal_leaves_stored_state_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    posts: list[dict] = []
+
+    async def value_holdings() -> PortfolioValuation:
+        return _weighted_valuation()
+
+    async def compute_regime_signal(weights):
+        return None
+
+    db.set_setting(jobs.LAST_REGIME_LEVEL_KEY, "normal")
+    monkeypatch.setattr(jobs, "value_holdings", value_holdings)
+    monkeypatch.setattr(jobs, "compute_regime_signal", compute_regime_signal)
+    _install_http_recorder(monkeypatch, posts)
+
+    result = await jobs.run_regime_alert()
+
+    assert result == {"alert": ""}
+    assert posts == []
+    assert db.get_setting(jobs.LAST_REGIME_LEVEL_KEY) == "normal"
+
+
+async def test_run_regime_alert_webhook_failure_does_not_store_level(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    posts: list[dict] = []
+
+    async def value_holdings() -> PortfolioValuation:
+        return _weighted_valuation()
+
+    async def compute_regime_signal(weights):
+        return SimpleNamespace(level="elevated", vol_ratio=1.8, short_vol=0.32, long_vol=0.18)
+
+    monkeypatch.setattr(jobs, "value_holdings", value_holdings)
+    monkeypatch.setattr(jobs, "compute_regime_signal", compute_regime_signal)
+    _install_http_recorder(monkeypatch, posts, raises=True)
+
+    result = await jobs.run_regime_alert()
+
+    assert result == {"alert": ""}
+    assert len(posts) == 1
+    assert db.get_setting(jobs.LAST_REGIME_LEVEL_KEY) is None
