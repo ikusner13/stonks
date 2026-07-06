@@ -16,6 +16,8 @@ from .llm.discovery import discover_ideas
 from .llm.pipeline import research_ticker_cached
 from .llm.usage import format_event, format_rollup, with_run
 from .schemas import Critique, DiscoveryResult, ResearchResult, TickerData, TickerReport
+from . import db
+from .jobs import LAST_RUN_PREFIX, Job, build_jobs
 
 app = typer.Typer(add_completion=False, help="LLM-driven equity research assistant.")
 
@@ -36,6 +38,25 @@ def _fmt_cap(n: float | None) -> str:
         if n >= div:
             return f"${n / div:.2f}{suf}"
     return f"${_fmt_num(n)}"
+
+
+def _fmt_timedelta(job: Job) -> str:
+    if job.at_hour_utc is not None:
+        return f"daily @ {job.at_hour_utc:02d}:00 UTC"
+    assert job.cadence is not None
+    seconds = int(job.cadence.total_seconds())
+    parts = (
+        (seconds // 86400, "d"),
+        ((seconds % 86400) // 3600, "h"),
+        ((seconds % 3600) // 60, "m"),
+        (seconds % 60, "s"),
+    )
+    compact = "".join(f"{value}{unit}" for value, unit in parts if value)
+    return f"every {compact or '0s'}"
+
+
+def _job_last_run(job: Job) -> str:
+    return db.get_setting(f"{LAST_RUN_PREFIX}{job.name}") or "never"
 
 
 def _print_report(data: TickerData, report: TickerReport) -> None:
@@ -146,6 +167,26 @@ def discover(goal: list[str]) -> None:
 def usage() -> None:
     """Print the rolling usage / cost summary."""
     print(format_rollup())
+
+
+@app.command()
+def jobs_list() -> None:
+    """List registered background jobs and their last-run ledger values."""
+    db.init_db()
+    for job in build_jobs():
+        typer.echo(f"{job.name}\t{_fmt_timedelta(job)}\tlast_run={_job_last_run(job)}")
+
+
+@app.command()
+def jobs_run(name: str) -> None:
+    """Run one registered background job immediately without advancing its schedule."""
+    db.init_db()
+    for job in build_jobs():
+        if job.name == name:
+            asyncio.run(job.run())
+            return
+    typer.echo(f"unknown job: {name}", err=True)
+    raise typer.Exit(1)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -71,10 +71,89 @@ def _install_http_recorder(monkeypatch: pytest.MonkeyPatch, posts: list[dict], *
     monkeypatch.setattr(jobs.httpx, "AsyncClient", FakeAsyncClient)
 
 
-def test_seconds_until_next_before_after_and_exact_hour():
-    assert jobs.seconds_until_next(21, datetime(2026, 7, 5, 20, 30, tzinfo=UTC)) == 1800
-    assert jobs.seconds_until_next(21, datetime(2026, 7, 5, 21, 0, tzinfo=UTC)) == 86400
-    assert jobs.seconds_until_next(21, datetime(2026, 7, 5, 22, 0, tzinfo=UTC)) == 82800
+def test_is_due_for_pinned_hour_jobs():
+    job = jobs.Job(name="daily", run=lambda: None, at_hour_utc=21)
+    now = datetime(2026, 7, 5, 20, 30, tzinfo=UTC)
+
+    assert jobs.is_due(job, now, None) is False
+    assert jobs.is_due(job, datetime(2026, 7, 5, 21, 0, tzinfo=UTC), None) is True
+    assert (
+        jobs.is_due(
+            job,
+            datetime(2026, 7, 5, 22, 0, tzinfo=UTC),
+            datetime(2026, 7, 5, 21, 0, tzinfo=UTC),
+        )
+        is False
+    )
+    assert (
+        jobs.is_due(
+            job,
+            datetime(2026, 7, 5, 22, 0, tzinfo=UTC),
+            datetime(2026, 7, 2, 21, 0, tzinfo=UTC),
+        )
+        is True
+    )
+
+
+def test_is_due_for_cadence_jobs():
+    job = jobs.Job(name="interval", run=lambda: None, cadence=timedelta(hours=6))
+    now = datetime(2026, 7, 5, 12, 0, tzinfo=UTC)
+
+    assert jobs.is_due(job, now, None) is True
+    assert jobs.is_due(job, now, datetime(2026, 7, 5, 9, 1, tzinfo=UTC)) is False
+    assert jobs.is_due(job, now, datetime(2026, 7, 5, 6, 0, tzinfo=UTC)) is True
+
+
+def test_job_requires_exactly_one_schedule():
+    async def run():
+        return None
+
+    with pytest.raises(ValueError):
+        jobs.Job(name="none", run=run)
+    with pytest.raises(ValueError):
+        jobs.Job(name="both", run=run, at_hour_utc=21, cadence=timedelta(hours=1))
+
+
+async def test_run_due_jobs_updates_successful_jobs_and_continues_after_failure():
+    calls: list[str] = []
+
+    async def successful():
+        calls.append("successful")
+
+    async def failing():
+        calls.append("failing")
+        raise RuntimeError("boom")
+
+    async def after_failure():
+        calls.append("after_failure")
+
+    async def not_due():
+        calls.append("not_due")
+
+    now = datetime(2026, 7, 5, 12, 0, tzinfo=UTC)
+    db.set_setting(f"{jobs.LAST_RUN_PREFIX}successful", "not-a-date")
+    db.set_setting(f"{jobs.LAST_RUN_PREFIX}not_due", now.isoformat())
+    registry = [
+        jobs.Job(name="successful", run=successful, cadence=timedelta(hours=1)),
+        jobs.Job(name="failing", run=failing, cadence=timedelta(hours=1)),
+        jobs.Job(name="after_failure", run=after_failure, cadence=timedelta(hours=1)),
+        jobs.Job(name="not_due", run=not_due, cadence=timedelta(hours=1)),
+    ]
+
+    result = await jobs.run_due_jobs(registry, now)
+
+    assert result == {"successful": True, "failing": False, "after_failure": True}
+    assert calls == ["successful", "failing", "after_failure"]
+    assert db.get_setting(f"{jobs.LAST_RUN_PREFIX}successful") == now.isoformat()
+    assert db.get_setting(f"{jobs.LAST_RUN_PREFIX}failing") is None
+    assert db.get_setting(f"{jobs.LAST_RUN_PREFIX}after_failure") == now.isoformat()
+    assert db.get_setting(f"{jobs.LAST_RUN_PREFIX}not_due") == now.isoformat()
+
+
+def test_build_jobs_empty_when_daily_hour_negative(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
+
+    assert jobs.build_jobs() == []
 
 
 async def test_run_daily_jobs_records_snapshot_sends_dedupes_and_resends_changed(

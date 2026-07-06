@@ -26,6 +26,7 @@ DAILY_LLM_BUDGET_USD = float(os.getenv("DAILY_LLM_BUDGET_USD", "5"))  # 0 disabl
 
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 DAILY_JOB_HOUR_UTC = int(os.getenv("DAILY_JOB_HOUR_UTC", "21"))
+SCHEDULER_TICK_SECONDS = int(os.getenv("SCHEDULER_TICK_SECONDS", "300"))
 DRIFT_ALERT_ENABLED = os.getenv("DRIFT_ALERT_ENABLED", "1") == "1"
 
 # SQLite store for the server-side watchlist / positions.

@@ -20,9 +20,9 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import config, db
+from .. import db
 from ..config import OPENROUTER_API_KEY
-from ..jobs import daily_loop
+from ..jobs import build_jobs, scheduler_loop
 from ..llm.budget import BudgetExceededError
 from ..llm.discovery import discover_ideas
 from ..llm.pipeline import InsufficientDataError, research_ticker_cached
@@ -188,8 +188,9 @@ templates.env.filters["indicator_value"] = _fmt_indicator_value
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     task: asyncio.Task | None = None
-    if config.DAILY_JOB_HOUR_UTC >= 0:
-        task = asyncio.create_task(daily_loop())
+    jobs_registry = build_jobs()
+    if jobs_registry:
+        task = asyncio.create_task(scheduler_loop(jobs_registry))
     try:
         yield
     finally:
