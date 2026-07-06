@@ -251,6 +251,19 @@ the current actionable symbol set, the job skips regardless of date. Otherwise
 it posts `{"content": message}` to Discord with `httpx.AsyncClient(timeout=5)`.
 Webhook failures are logged and do not update the dedupe key.
 
+SEC filing alerts run only when both `SEC_ALERTS_ENABLED` and
+`DISCORD_WEBHOOK_URL` are set. The cadence is `SEC_ALERT_HOURS`; each run
+combines watchlist and holdings symbols, resolves them through SEC's ticker-CIK
+map, and looks back `SEC_LOOKBACK_DAYS`. Company submissions JSON covers
+`SEC_ALERT_FORMS` such as 8-K, 10-Q, and 10-K. SEC EFTS full-text search covers
+SC 13D/13G ownership filings because those forms are filed by the holder while
+EFTS indexes them under the subject CIK too. Alerts are batched into one Discord
+post and deduped globally by accession in the `alerts_sent` table with
+`kind='sec_filing'`; rows are inserted only after a successful webhook post.
+Ticker-map failure returns early so the next run retries; per-symbol company
+filing failures skip only that symbol, and ownership search failures are
+best-effort.
+
 Price and earnings alerts are registered when both `ALERTS_ENABLED` and
 `DISCORD_WEBHOOK_URL` are set. `price_alerts` refreshes 52-week ranges from
 yfinance history, then checks Finnhub quotes for daily moves at or above
@@ -277,6 +290,7 @@ same lock, and exceptions still propagate without writing a cache entry.
 | --- | --- | --- | --- |
 | `data` | `SYMBOL` | 15 min | `write_cache` only fires when `produce()` returns non-`None`. `fetch_ticker_data`'s `produce()` always returns a full `TickerData` dict (even with per-source `error` statuses inside it) unless the whole thing raises — so partial failures *are* cached for the TTL; total failures are not cached at all. |
 | `sec` | `SYMBOL` | 24 h | Same rule; a `None` result (fetch failed entirely) is never persisted, so the next call retries immediately. |
+| `sec_tickers` | `"all"` | 24 h | The SEC ticker-CIK map producer raises on request failures, unexpected shapes, or an empty parsed map, so failures are never persisted. |
 | `macro` | `"latest"` (single global key, not per-symbol) | 6 h | A `None` result (no `FRED_API_KEY`, or the FRED call raised) is never persisted. |
 | `report` | `SYMBOL:YYYY-MM-DD:mode` | 24 h | An `InsufficientDataError` raised inside `produce()` propagates before any write — never cached, always retried. |
 | `scorecard` | `SYMBOL:YYYY-MM-DD` | 24 h | `produce()` always returns a scorecard dict (indicators default to `unavailable` rather than raising), so this is effectively always cached once computed. |
@@ -300,7 +314,7 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
 | `nav_snapshots` | `app/portfolio/snapshots.py` | One NAV row per UTC day from a portfolio page visit or daily job: securities value, cash, total NAV, cost, and unrealized P&L. |
 | `transactions` | `app/portfolio/transactions.py` | Optional applied ledger rows: date, side, symbol, shares, price, amount, realized P/L, note, and creation timestamp. |
 | `price_ranges` | `app/alerts.py` | Rolling 52-week high/low state per symbol, refreshed from price history and updated when live quotes break the stored range. |
-| `alerts_sent` | `app/alerts.py` | Shared idempotency ledger keyed by alert kind and deterministic dedupe key; webhook failures leave it unwritten for retry. |
+| `alerts_sent` | `app/alerts.py` | Shared idempotency ledger keyed by alert kind and deterministic `dedupe_key`; SEC filing alerts use accession numbers as globally unique keys, and webhook failures leave the ledger unwritten for retry. |
 
 ## Error-handling conventions
 

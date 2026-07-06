@@ -9,6 +9,12 @@ from math import isfinite
 from typing import Any
 
 from . import config, db
+from .data.sec_filings import (
+    fetch_company_filings,
+    fetch_ownership_filings,
+    sec_client_session,
+    ticker_cik_map,
+)
 from .data.finnhub import fetch_earnings_calendar, fetch_quote
 from .jobs import post_discord
 from .portfolio.history import fetch_price_history
@@ -265,3 +271,49 @@ async def run_earnings_alerts() -> dict:
     for kind, key, _line in unsent:
         mark_sent(kind, key)
     return {"alerts": len(unsent)}
+
+
+async def run_sec_filing_alerts() -> dict:
+    """Poll SEC EDGAR and post one batched alert for new filings."""
+    init_alerts_db()
+    symbols = alert_universe()
+    try:
+        cmap = await ticker_cik_map()
+    except Exception:
+        logger.exception("SEC ticker-CIK map fetch failed")
+        return {"alerts": 0}
+
+    since = datetime.now(UTC).date() - timedelta(days=config.SEC_LOOKBACK_DAYS)
+    pending: dict[str, str] = {}
+    async with sec_client_session():
+        for symbol in symbols:
+            cik = cmap.get(symbol)
+            if cik is None:
+                logger.debug("SEC ticker-CIK map missing %s", symbol)
+                continue
+            try:
+                filings = await fetch_company_filings(symbol, cik, since)
+                filings.extend(await fetch_ownership_filings(symbol, cik, since))
+            except Exception:
+                logger.exception("SEC filing fetch failed for %s", symbol)
+                continue
+            for filing in filings:
+                if filing.accession in pending or already_sent("sec_filing", filing.accession):
+                    continue
+                pending[filing.accession] = (
+                    f"SEC {filing.form} {filing.symbol} filed "
+                    f"{filing.filing_date} {filing.url}"
+                )
+
+    if not pending:
+        return {"alerts": 0}
+
+    try:
+        await post_discord("\n".join(pending.values()))
+    except Exception:
+        logger.exception("SEC filing alerts Discord post failed")
+        return {"alerts": 0}
+
+    for accession in pending:
+        mark_sent("sec_filing", accession)
+    return {"alerts": len(pending)}

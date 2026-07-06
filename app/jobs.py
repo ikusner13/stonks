@@ -196,4 +196,14 @@ def build_jobs() -> list[Job]:
                 ),
             ]
         )
+    if config.SEC_ALERTS_ENABLED and config.DISCORD_WEBHOOK_URL:
+        from .alerts import run_sec_filing_alerts
+
+        registry.append(
+            Job(
+                name="sec_filing_alerts",
+                run=run_sec_filing_alerts,
+                cadence=timedelta(hours=config.SEC_ALERT_HOURS),
+            )
+        )
     return registry
