@@ -4,6 +4,7 @@ optimizer (formerly an HTTP sidecar) as a direct in-process call."""
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import sys
@@ -71,6 +72,11 @@ logger = logging.getLogger(__name__)
 
 HERE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=HERE / "templates")
+# Content-hashed CSS URL: Cloudflare edge-caches /static/*.css, so an unversioned
+# URL keeps serving the previous deploy's stylesheet after the HTML changes.
+templates.env.globals["css_version"] = hashlib.sha1(
+    (HERE / "static" / "app.css").read_bytes()
+).hexdigest()[:8]
 
 EXAMPLES = [
     "AI infrastructure under $100B market cap",
