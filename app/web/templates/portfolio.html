@@ -120,6 +120,16 @@
 
   {# ── D) Performance ───────────────────────────────────────────────────────── #}
   <section class="mb-10">
+    <h2 class="mb-4 text-lg font-semibold">Realized time-weighted return</h2>
+    <div class="mb-5 rounded-2xl border border-[var(--line)] p-5">
+      <div
+        hx-get="/portfolio/twr"
+        hx-trigger="load"
+        hx-swap="innerHTML">
+        <p class="text-sm text-[var(--sea-ink-soft)]">Computing time-weighted return…</p>
+      </div>
+    </div>
+
     <h2 class="mb-4 text-lg font-semibold">Allocation backtest</h2>
     <div class="rounded-2xl border border-[var(--line)] p-5">
       <div

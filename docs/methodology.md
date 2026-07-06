@@ -588,6 +588,53 @@ dedupe setting is written only after `response.raise_for_status()` succeeds;
 webhook errors are logged as `"daily drift alert failed"` and leave the previous
 dedupe setting unchanged.
 
+**Time-weighted return** (`app/portfolio/twr.py`). TWR is the realized
+account-return number meant for benchmark comparison. It uses recorded daily
+NAV snapshots (`NavSnapshot.total_with_cash`, securities plus cash) and strips
+out only external cash flows from the transaction journal. Deposits are
+positive flows and withdrawals are negative flows; buys, sells, dividends, and
+other internal portfolio activity are excluded because they do not cross the
+portfolio boundary.
+
+Requires at least two snapshots, a start-to-end span of at least 14 calendar
+days, every prior period NAV to be positive, and every computed
+`1 + period_return` to be positive. If any of those checks fails, TWR returns
+`None` rather than showing a misleading figure. Snapshots are sorted by day
+before computation. Flow convention is end-of-period: a flow dated `d` belongs
+to the period ending at snapshot `cur` when `prev.day < d <= cur.day`.
+
+For each adjacent snapshot pair:
+
+```
+F_i = sum(external flows where prev.day < flow_day <= cur.day)
+r_i = (V_i - F_i) / V_{i-1} - 1
+TWR = product(1 + r_i) - 1
+```
+
+where `V_i` is `total_with_cash`. Annualized TWR is shown only when the
+snapshot span is at least 365 days:
+
+```
+annualized = (1 + TWR) ** (365.25 / span_days) - 1
+```
+
+The benchmark comparison uses SPY close prices over the same
+`window_start`/`window_end` and reports `SPY cumulative = last_close /
+first_close - 1`; excess return is `TWR - SPY cumulative`. Benchmark fetch
+failure is isolated to the benchmark fields (`benchmark_cumulative` and
+`excess_cumulative` become `None`) so a valid account TWR can still render.
+The summary is cached for 24 hours under namespace `twr`, keyed by window end,
+period count, and UTC day; no-data results return `None` and are not cached.
+
+TWR differs from money-weighted return (§4): MWR answers how the user's actual
+dollars did after the timing and size of deposits/withdrawals, while TWR
+answers how the allocation performed independent of those external-flow
+timing decisions. Snapshot gaps make periods coarser than daily; multi-day
+periods are still valid chain links because all external flows dated inside
+the gap are assigned to that period.
+
+## 8. Performance backtests and optimization
+
 **Allocation backtest** (`app/portfolio/performance.py::compute_performance`).
 
 > **This is not the account's realized return.** It replays *today's* live
