@@ -212,13 +212,16 @@ authoritative `holdings` table and recorded cash setting. It is not a replay
 source: deleting a transaction deletes only that ledger row and does not reverse
 cash or holdings effects.
 
-Allowed sides are `buy`, `sell`, `deposit`, and `withdraw`. Dates must be ISO
-calendar dates (`YYYY-MM-DD`) and cannot be in the future relative to UTC today.
-Symbols are uppercased. Buy/sell rows require `symbol`, `shares > 0`, and
-`price > 0`; deposit/withdraw rows require `amount > 0`. Buy/sell `amount` is
-computed by code as `shares * price` rounded to cents with `Decimal` and
-`ROUND_HALF_UP`; submitted buy/sell amount is ignored. Cash-flow amount is the
-submitted amount rounded the same way.
+Allowed sides are `buy`, `sell`, `deposit`, `withdraw`, and `dividend`. Dates
+must be ISO calendar dates (`YYYY-MM-DD`) and cannot be in the future relative
+to UTC today. Symbols are uppercased. Buy/sell rows require `symbol`,
+`shares > 0`, and `price > 0`; deposit/withdraw rows require `amount > 0`.
+Dividend rows require `amount > 0` and may include a symbol, which is
+uppercased when present. Buy/sell `amount` is computed by code as
+`shares * price` rounded to cents with `Decimal` and `ROUND_HALF_UP`; submitted
+buy/sell amount is ignored. Cash-flow and dividend amounts are the submitted
+amount rounded the same way. Deposit, withdraw, and dividend rows store
+`shares`, `price`, and `realized_pl` as `None`.
 
 **Buy application.** A buy first checks recorded cash:
 
@@ -247,6 +250,11 @@ amount. A withdrawal requires enough recorded cash, raises
 `ValueError("withdrawal exceeds cash")` when `cash - amount < 0`, and otherwise
 sets cash to `cash - amount`.
 
+**Dividends.** A dividend increases recorded cash by its rounded amount. It
+does not mutate holdings, even when a symbol is present; the optional symbol is
+ledger context only. Dividends are tracked separately from realized P/L because
+they are cash income, not proceeds from selling shares.
+
 **Sell application.** A sell requires an existing holding and rejects
 `shares > held_shares + 1e-9`. Cash increases by `amount`. The holding's
 `avg_cost` is unchanged while shares remain. If the remaining share count is
@@ -258,9 +266,11 @@ That result is rounded to cents with `Decimal` and `ROUND_HALF_UP`. If
 `avg_cost is None`, realized P/L is stored as `None`.
 
 **Money-weighted return.** `compute_returns()` uses only external cash flows:
-deposits, withdrawals, and a terminal portfolio value. Buys and sells are
-internal transfers because cash is inside the portfolio boundary, so they never
-enter the MWR flow list. Flow signs are:
+deposits, withdrawals, and a terminal portfolio value. Buys, sells, and
+dividends are internal events because cash is inside the portfolio boundary, so
+they never enter the MWR flow list. Dividends affect MWR through terminal NAV:
+the cash they add remains in `valuation.total_with_cash` unless later withdrawn
+or spent. Flow signs are:
 
 | Flow | XIRR amount |
 | --- | ---: |

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from .. import db
 from .holdings import Holding, PortfolioValuation
 
-SIDES = ("buy", "sell", "deposit", "withdraw")
+SIDES = ("buy", "sell", "deposit", "withdraw", "dividend")
 _ZERO_TOLERANCE = 1e-9
 _CENT = Decimal("0.01")
 
@@ -33,6 +33,8 @@ class ReturnsSummary(BaseModel):
     mwr_note: str
     total_deposited: float
     total_withdrawn: float
+    dividends_total: float
+    dividends_by_year: dict[str, float]
     realized_pl_total: float
     realized_pl_by_year: dict[str, float]
     first_flow_date: str | None
@@ -164,11 +166,14 @@ def _validated_transaction(txn: Transaction) -> Transaction:
         )
 
     amount = _positive_number(txn.amount, "amount")
+    symbol = None
+    if side == "dividend":
+        symbol = (txn.symbol or "").strip().upper() or None
     return Transaction(
         id=txn.id,
         ts=txn.ts,
         side=side,
-        symbol=None,
+        symbol=symbol,
         shares=None,
         price=None,
         amount=_round_cents(amount),
@@ -228,6 +233,9 @@ def apply_transaction(txn: Transaction) -> Transaction:
             if cash_after < 0:
                 raise ValueError("withdrawal exceeds cash")
             _set_cash_for_update(c, cash_after)
+
+        elif clean.side == "dividend":
+            _set_cash_for_update(c, cash + clean.amount)
 
         row = c.execute(
             """
@@ -357,6 +365,8 @@ def compute_returns(valuation: PortfolioValuation) -> ReturnsSummary:
     external_flows: list[tuple[str, float]] = []
     total_deposited = 0.0
     total_withdrawn = 0.0
+    dividends_by_year: dict[str, float] = {}
+    dividends_total = 0.0
     realized_pl_by_year: dict[str, float] = {}
     realized_pl_total = 0.0
 
@@ -367,6 +377,12 @@ def compute_returns(valuation: PortfolioValuation) -> ReturnsSummary:
         elif txn.side == "withdraw":
             total_withdrawn += txn.amount
             external_flows.append((txn.ts, txn.amount))
+        elif txn.side == "dividend":
+            year = txn.ts[:4]
+            dividends_by_year[year] = _round_cents(
+                dividends_by_year.get(year, 0.0) + txn.amount
+            )
+            dividends_total += txn.amount
         elif txn.side == "sell" and txn.realized_pl is not None:
             year = txn.ts[:4]
             realized_pl_by_year[year] = _round_cents(
@@ -395,6 +411,8 @@ def compute_returns(valuation: PortfolioValuation) -> ReturnsSummary:
         mwr_note=mwr_note,
         total_deposited=_round_cents(total_deposited),
         total_withdrawn=_round_cents(total_withdrawn),
+        dividends_total=_round_cents(dividends_total),
+        dividends_by_year=dict(sorted(dividends_by_year.items())),
         realized_pl_total=_round_cents(realized_pl_total),
         realized_pl_by_year=dict(sorted(realized_pl_by_year.items())),
         first_flow_date=first_flow_date,
