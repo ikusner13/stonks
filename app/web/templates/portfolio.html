@@ -3,7 +3,7 @@
 {% block content %}
 <main class="page-wrap page">
   <h1 class="page-title">Portfolio</h1>
-  <p class="page-lede">Track your real positions, optimize allocation, and measure historical performance.</p>
+  <p class="page-lede">Review synced broker positions, optimize allocation, and measure historical performance.</p>
 
   {% include "partials/broker_sync.html" %}
 
@@ -11,72 +11,13 @@
   <section class="section">
     <h2 class="section-title">Holdings</h2>
 
-    {# Live valuation table — refreshed after each add/remove or transaction. #}
+    {# Live valuation table — refreshed after broker sync. #}
     <div
       hx-get="/portfolio/holdings"
       hx-trigger="holdings-changed from:body"
       hx-swap="innerHTML">
       {% include "partials/holdings_table.html" %}
     </div>
-
-    {# Cash balance form #}
-    <form hx-post="/portfolio/cash"
-          hx-target="#holdings-table"
-          hx-swap="outerHTML"
-          hx-indicator="#holdings-spin"
-          class="cluster cluster-end mt-5">
-      <div class="field">
-        <label>Cash</label>
-        <input name="cash" type="number" min="0" step="0.01" inputmode="decimal"
-          value="{{ '%.2f' | format(valuation.cash) }}"
-          class="input input-sm" />
-      </div>
-      <button type="submit" class="btn">
-        Save Cash
-      </button>
-    </form>
-
-    {# Add position form #}
-    <div class="cluster cluster-end mt-5">
-      <form hx-post="/portfolio/holdings"
-            hx-target="#holdings-table"
-            hx-swap="outerHTML"
-            hx-indicator="#holdings-spin"
-            id="add-holding-form"
-            class="cluster cluster-end">
-        <div class="field">
-          <label>Symbol</label>
-          <input name="symbol" placeholder="AAPL" required class="input input-xs" />
-        </div>
-        <div class="field">
-          <label>Shares</label>
-          <input name="shares" placeholder="10" inputmode="decimal" required class="input input-xs" />
-        </div>
-        <div class="field">
-          <label>Avg Cost (optional)</label>
-          <input name="avg_cost" placeholder="150.00" inputmode="decimal" class="input input-sm" />
-        </div>
-        <button type="submit" class="btn btn-primary">
-          Add / Update
-        </button>
-      </form>
-
-      <form hx-post="/portfolio/import"
-            hx-encoding="multipart/form-data"
-            hx-target="#holdings-table"
-            hx-swap="outerHTML"
-            hx-indicator="#holdings-spin"
-            class="cluster cluster-end">
-        <div class="field">
-          <label>Import CSV</label>
-          <input name="file" type="file" accept=".csv,text/csv" required class="input" />
-        </div>
-        <button type="submit" class="btn">
-          Upload
-        </button>
-      </form>
-    </div>
-    <p id="holdings-spin" class="htmx-indicator loading-note mt-4">Fetching prices…</p>
   </section>
 
   {# ── B) Portfolio Health & Trade Decision Support ────────────────────────── #}
@@ -160,19 +101,10 @@
   {# ── F) Optimizer & rebalancing signals ──────────────────────────────────── #}
   <section class="section">
     <h2 class="section-title">Optimizer &amp; Rebalancing Signals</h2>
-    <p class="section-note">Mean-variance allocation seeded from your current holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>
+    <p class="section-note">Mean-variance allocation runs on your synced holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>
 
     <form hx-post="/portfolio/optimize" hx-target="#opt-results" hx-indicator="#opt-spin">
-      <div id="rows" class="stack">
-        {% for r in optimizer_rows %}{% include "partials/portfolio_row.html" %}{% endfor %}
-        {% if not optimizer_rows %}
-        {% set r = none %}{% include "partials/portfolio_row.html" %}
-        {% endif %}
-      </div>
-
       <div class="cluster mt-4">
-        <button type="button" hx-get="/portfolio/holdings/row" hx-target="#rows" hx-swap="beforeend"
-          class="btn btn-sm">+ Add ticker</button>
         <label class="muted small">
           objective:
           <select name="objective" class="select">
@@ -195,7 +127,7 @@
   {# ── G) Transactions ─────────────────────────────────────────────────────── #}
   <section class="section">
     <h2 class="section-title">Transactions</h2>
-    <p class="section-note">Optional journal entries apply to cash and holdings when saved.</p>
+    <p class="section-note">Imported automatically from your broker.</p>
     <div
       hx-get="/portfolio/tax"
       hx-trigger="load, txns-changed from:body"

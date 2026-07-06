@@ -1,21 +1,14 @@
 {# Renders the holdings table with live valuation.
    Context: valuation = PortfolioValuation (may have empty holdings list) #}
 <div id="holdings-table">
-  {% if import_summary %}
-  <div class="flow">
-    <p>Imported {{ import_summary.imported }} holding{{ '' if import_summary.imported == 1 else 's' }}.</p>
-    {% if import_summary.skipped %}
-    <p class="muted small">Skipped {{ import_summary.skipped | length }} row{{ '' if import_summary.skipped | length == 1 else 's' }}:</p>
-    <ul class="muted small">
-      {% for item in import_summary.skipped %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-  </div>
-  {% endif %}
   {% if not valuation.holdings %}
-  <p class="empty">No holdings yet. Add a position below.</p>
+  <p class="empty">
+    {% if broker_sync_configured %}
+    No holdings yet — run a broker sync to populate them.
+    {% else %}
+    No holdings yet — configure SnapTrade credentials to sync them from your broker.
+    {% endif %}
+  </p>
   <div class="table-shell">
     <table class="table">
       <tfoot>
@@ -52,7 +45,6 @@
           <th class="num">P&amp;L ($)</th>
           <th class="num">P&amp;L (%)</th>
           <th class="num">Weight</th>
-          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -86,15 +78,6 @@
           <td class="num muted">
             {% if h.weight is not none %}{{ h.weight | pct }}{% else %}—{% endif %}
           </td>
-          <td class="num">
-            <button
-              hx-post="/portfolio/holdings/remove/{{ h.symbol }}"
-              hx-target="#holdings-table"
-              hx-swap="outerHTML"
-              class="btn btn-danger btn-sm">
-              ×
-            </button>
-          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -109,22 +92,22 @@
           <td class="num {% if tot_pos %}pos{% else %}neg{% endif %}">
             {{ '+' if tot_pos else '' }}{{ valuation.total_unrealized_pl_pct | pct }}
           </td>
-          <td colspan="2"></td>
+          <td></td>
         </tr>
         <tr>
           <td colspan="4">Cash</td>
           <td class="num money">${{ valuation.cash | fmt_num }}</td>
-          <td colspan="4"></td>
+          <td colspan="3"></td>
         </tr>
         <tr>
           <td colspan="4">Total (incl. cash)</td>
           <td class="num money-lg">${{ valuation.total_with_cash | fmt_num }}</td>
-          <td colspan="4"></td>
+          <td colspan="3"></td>
         </tr>
         <tr>
           <td colspan="4">Dry powder</td>
           <td class="num">{{ valuation.cash_pct | pct }}</td>
-          <td colspan="4"></td>
+          <td colspan="3"></td>
         </tr>
       </tfoot>
     </table>

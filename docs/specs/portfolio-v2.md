@@ -1,11 +1,10 @@
 # Portfolio v2 spec (transactions, alerts, visuals)
 
 Scope: three workstreams on top of shipped go-live v1 (single-user, no auth).
-Explicitly **out of scope**: broker API sync (Schwab/Plaid — OAuth app approval +
-paid aggregators, poor ROI for self-hosted single user; transaction CSV import
-below covers the friction instead), JS charting libraries (repo idiom is
-server-computed SVG/CSS — keep it), any LLM involvement (everything here is
-deterministic math the LLM may later narrate).
+Historical note: this spec predates the SnapTrade integration. Broker sync is
+now in scope for the shipped app and is the source of truth for holdings, cash,
+and transactions. JS charting libraries remain out of scope (repo idiom is
+server-computed SVG/CSS), as does any LLM involvement in portfolio math.
 
 Orchestration roles: Fable plans/judges, gpt-5.5 (codex exec, reasoning effort
 **high**) codes, Opus reviews.
@@ -37,11 +36,10 @@ merge in order **W1 → W2 → W3**, rebasing each on the previous merge.
 
 ## W1 — Transactions ledger + money-weighted return
 
-Design stance: the ledger is an **optional journal that drives state**, not a
-reconstruction source. `holdings` and `settings.cash` stay authoritative and
-manually editable; applying a transaction mutates them through the same
-functions the forms use. No lot tracking — average-cost method, consistent
-with the single `avg_cost` field.
+Design stance at implementation time: the lower-level ledger math is
+deterministic, but the shipped web UI now mirrors broker state through
+SnapTrade instead of accepting local state-entry forms. No lot tracking —
+average-cost method, consistent with the single `avg_cost` field.
 
 ### T1. Store + apply semantics — new module `app/portfolio/transactions.py`
 
@@ -129,33 +127,19 @@ Docs: methodology.md new § "Transactions, realized P/L, and money-weighted
 return" — exact avg-cost formula, sell P/L formula, XIRR flow convention and
 bisection bounds, the internal-vs-external flow boundary.
 
-### T3. UI + CSV import
+### T3. UI + broker sync
 
 - `portfolio.html` new section **G) Transactions** (after F): lazy
   `hx-get="/portfolio/transactions" hx-trigger="load, txns-changed from:body"`.
-- `GET /portfolio/transactions` → `partials/transactions.html`: add-txn form
-  (side select toggles symbol/shares/price fields via minimal inline JS or
-  just always-visible optional fields — pick always-visible, no JS), returns
+- `GET /portfolio/transactions` → `partials/transactions.html`: returns
   summary block (ReturnsSummary stats: MWR badge, deposited/withdrawn,
-  realized P/L total + per-year mini-table), last 20 txns table with delete
-  buttons, CSV import form.
-- `POST /portfolio/transactions` — form fields ts/side/symbol/shares/price/
-  amount/note. For buy/sell, `amount` is computed server-side from
-  shares*price (ignore submitted amount). ValueError → `_error_partial`.
-  Success → re-render partial + `HX-Trigger: txns-changed` AND refresh
-  holdings table (holdings changed) — return the transactions partial and add
-  `HX-Trigger: holdings-changed`; make holdings table listen
-  (`hx-trigger="holdings-changed from:body"` on a wrapping div that
-  `hx-get`s a new `GET /portfolio/holdings` partial route — add it, it just
-  renders `partials/holdings_table.html` from `value_holdings()`).
-- `POST /portfolio/transactions/delete/{id}` → partial re-render.
-- `POST /portfolio/transactions/import` — CSV, same limits/parse style as
-  holdings import (100 KB / 500 rows / utf-8-sig / case-insensitive header):
-  columns `date,side,symbol,shares,price,amount,note` (symbol/shares/price
-  blank for cash flows; amount optional for buy/sell). Rows applied
-  **in file order, oldest-first is the user's job** (state in template help
-  text); each row through `apply_transaction`, per-line errors collected
-  non-fatally, summary block like holdings import.
+  realized P/L total + per-year mini-table) and the last 20 broker-imported
+  transaction rows.
+- Manual transaction state-entry, file import, and deletion controls were
+  superseded by SnapTrade broker sync. Broker sync emits `txns-changed` and
+  `holdings-changed`; the holdings table listens with
+  `hx-trigger="holdings-changed from:body"` on a wrapping div that `hx-get`s
+  `GET /portfolio/holdings`.
 - MWR badge also added to NAV panel header (small, e.g. "MWR 12.3%/yr") —
   pass ReturnsSummary into nav partial context.
 
@@ -169,8 +153,7 @@ bisection bounds, the internal-vs-external flow boundary.
   ~0.10 within 1e-4), two-flow same-sign → None, <14d span → None,
   loss case negative rate, multi-flow case vs hand-computed NPV sign checks.
 - compute_returns: flows exclude buys/sells; per-year rollup; unpriced → None.
-- routes: POST valid buy (holdings row visible after), invalid → error
-  partial, CSV import happy + bad rows, delete.
+- broker sync route coverage owns web transaction refresh behavior.
 
 ---
 

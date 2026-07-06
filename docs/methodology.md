@@ -215,10 +215,11 @@ the same message. Correlation and the allocation backtest keep all symbols.
 
 ## 4. Transactions, realized P/L, and money-weighted return
 
-The transaction ledger is an optional journal that applies changes to the
-authoritative `holdings` table and recorded cash setting. It is not a replay
-source: deleting a transaction deletes only that ledger row and does not reverse
-cash or holdings effects.
+The web portfolio ledger is mirrored from the broker. SnapTrade sync is the
+source of truth for holdings, cash, and transaction rows; the portfolio page no
+longer accepts manual state-entry forms. The lower-level transaction application
+functions remain deterministic Python for tests and broker-support workflows,
+but the web UI does not ask the LLM or the user to derive portfolio state.
 
 Broker-imported rows are ledger-only and carry `external_id` for dedupe. They
 do not mutate holdings or cash on insert because broker sync mirrors holdings

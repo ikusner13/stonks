@@ -1,0 +1,18 @@
+{"ts":"2026-07-06T06:49:22.976Z","cmd":"goto","args":"http://localhost:5173/portfolio","origin":"http://localhost:5173/portfolio","durationMs":217,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:24.033Z","cmd":"wait","args":"--networkidle","origin":"http://localhost:5173/portfolio","durationMs":1002,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:24.091Z","cmd":"console","args":"--errors","origin":"http://localhost:5173/portfolio","durationMs":2,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:24.147Z","cmd":"text","args":"","origin":"http://localhost:5173/portfolio","durationMs":3,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:37.536Z","cmd":"snapshot","args":"-i -d 6","origin":"http://localhost:5173/portfolio","durationMs":56,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:43.728Z","cmd":"click","args":"@e6","origin":"http://localhost:5173/portfolio","durationMs":94,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:43.787Z","cmd":"wait","args":"--networkidle","origin":"http://localhost:5173/portfolio","durationMs":0,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:43.832Z","cmd":"text","args":"","origin":"http://localhost:5173/portfolio","durationMs":2,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:43.919Z","cmd":"click","args":"@e7","origin":"http://localhost:5173/portfolio","durationMs":39,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:43.964Z","cmd":"wait","args":"--networkidle","origin":"http://localhost:5173/portfolio","durationMs":0,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:44.012Z","cmd":"text","args":"","origin":"http://localhost:5173/portfolio","durationMs":2,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:44.109Z","cmd":"click","args":"@e8","origin":"http://localhost:5173/portfolio","durationMs":52,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:44.155Z","cmd":"wait","args":"--networkidle","origin":"http://localhost:5173/portfolio","durationMs":0,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:44.201Z","cmd":"text","args":"","origin":"http://localhost:5173/portfolio","durationMs":2,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:44.250Z","cmd":"console","args":"--errors","origin":"http://localhost:5173/portfolio","durationMs":0,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:49:59.726Z","cmd":"click","args":"@e9","origin":"http://localhost:5173/portfolio","durationMs":44,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:50:11.949Z","cmd":"text","args":"","origin":"http://localhost:5173/portfolio","durationMs":3,"status":"ok","hasCookies":false,"mode":"launched"}
+{"ts":"2026-07-06T06:50:12.001Z","cmd":"console","args":"--errors","origin":"http://localhost:5173/portfolio","durationMs":0,"status":"ok","hasCookies":false,"mode":"launched"}

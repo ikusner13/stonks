@@ -1,18 +1,4 @@
 <div>
-  {% if import_summary %}
-  <div class="flow">
-    <p>Imported {{ import_summary.imported }} transaction{{ '' if import_summary.imported == 1 else 's' }}.</p>
-    {% if import_summary.skipped %}
-    <p class="muted small">Skipped {{ import_summary.skipped | length }} row{{ '' if import_summary.skipped | length == 1 else 's' }}:</p>
-    <ul class="muted small">
-      {% for item in import_summary.skipped %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-  </div>
-  {% endif %}
-
   <div class="cluster cluster-top">
     <div class="stat">
       <span class="stat-label">MWR</span>
@@ -87,71 +73,6 @@
   </div>
   {% endif %}
 
-  <form
-    hx-post="/portfolio/transactions"
-    hx-target="#transactions-panel"
-    hx-swap="innerHTML"
-    class="mt-5">
-    <div class="cluster cluster-end">
-      <div class="field">
-        <label>Date</label>
-        <input name="ts" type="date" required value="{{ valuation.asof[:10] }}" class="input input-sm" />
-      </div>
-      <div class="field">
-        <label>Side</label>
-        <select name="side" required class="select">
-          <option value="buy">buy</option>
-          <option value="sell">sell</option>
-          <option value="deposit">deposit</option>
-          <option value="withdraw">withdraw</option>
-          <option value="dividend">dividend</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Symbol</label>
-        <input name="symbol" placeholder="AAPL" class="input input-xs" />
-      </div>
-      <div class="field">
-        <label>Shares</label>
-        <input name="shares" inputmode="decimal" placeholder="10" class="input input-xs" />
-      </div>
-      <div class="field">
-        <label>Price</label>
-        <input name="price" inputmode="decimal" placeholder="150.00" class="input input-xs" />
-      </div>
-      <div class="field">
-        <label>Amount</label>
-        <input name="amount" inputmode="decimal" placeholder="1000.00" class="input input-sm" />
-      </div>
-      <div class="field">
-        <label>Note</label>
-        <input name="note" placeholder="optional" class="input" />
-      </div>
-      <button type="submit" class="btn btn-primary">
-        Add Transaction
-      </button>
-    </div>
-    <p class="footnote mt-2">Buy/sell amount is computed from shares × price; deposit, withdraw, and dividend use amount.</p>
-  </form>
-
-  <form
-    hx-post="/portfolio/transactions/import"
-    hx-encoding="multipart/form-data"
-    hx-target="#transactions-panel"
-    hx-swap="innerHTML"
-    class="mt-5">
-    <div class="cluster cluster-end">
-      <div class="field">
-        <label>Import transactions CSV</label>
-        <input name="file" type="file" accept=".csv,text/csv" required class="input" />
-      </div>
-      <button type="submit" class="btn">
-        Upload
-      </button>
-    </div>
-    <p class="footnote mt-2">CSV columns: date, side, symbol, shares, price, amount, note. Rows apply in file order; put them oldest first.</p>
-  </form>
-
   <h3 class="section-sub">Last 20 transactions</h3>
   {% if not transactions %}
   <p class="empty">No transactions yet.</p>
@@ -168,7 +89,6 @@
           <th class="num">Amount</th>
           <th class="num">Realized P&amp;L</th>
           <th>Note</th>
-          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -186,20 +106,10 @@
             {% if txn.realized_pl is not none %}{{ '+' if realized_pos else '' }}${{ txn.realized_pl | fmt_num }}{% else %}—{% endif %}
           </td>
           <td class="muted cell-wide">{{ txn.note }}</td>
-          <td class="num">
-            <button
-              hx-post="/portfolio/transactions/delete/{{ txn.id }}"
-              hx-target="#transactions-panel"
-              hx-swap="innerHTML"
-              class="btn btn-danger btn-sm">
-              ×
-            </button>
-          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <p class="footnote mt-2">Deleting a transaction removes the record, not its effect on holdings or cash.</p>
   {% endif %}
 </div>
