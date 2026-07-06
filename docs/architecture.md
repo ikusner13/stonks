@@ -58,11 +58,12 @@ the Jinja2 numeric-formatting filters (`fmt_num`, `fmt_cap`, `pct`) and
 server-computed chart models for templates to render. Imports nearly everything
 else in `app/`.
 
-**`app/jobs.py`** — The in-process daily background loop started from the
-FastAPI lifespan. It sleeps until `DAILY_JOB_HOUR_UTC`, records a NAV snapshot
-from `value_holdings()`, and optionally sends deterministic Discord rebalance
-drift alerts. It imports `app.config`, `app.db`, and `app.portfolio`; it has no
-LLM dependency and never writes the drift-alert dedupe key when a webhook post
+**`app/jobs.py`** — The in-process background job registry and tick scheduler
+started from the FastAPI lifespan. It stores per-job `last_run:*` ledger values
+in SQLite `settings`, runs a startup catch-up tick, records a NAV snapshot from
+`value_holdings()`, and optionally sends deterministic Discord rebalance drift
+alerts. It imports `app.config`, `app.db`, and `app.portfolio`; it has no LLM
+dependency and never writes the drift-alert dedupe key when a webhook post
 fails.
 
 **`app/cache.py`** — The one dependency-light file-cache primitive
@@ -217,14 +218,18 @@ panel never takes down the rest of the page.
 
 ### (c) Background jobs
 
-`app.web.app` owns the FastAPI lifespan. On startup it creates one
-`asyncio.create_task(daily_loop())` when `DAILY_JOB_HOUR_UTC >= 0`; tests can
-set the hour below zero to suppress the loop. On shutdown the task is cancelled
-and awaited.
+`app.web.app` owns the FastAPI lifespan. On startup it calls `build_jobs()` and
+creates one `asyncio.create_task(scheduler_loop(jobs_registry))` when the
+registry is non-empty; tests can set `DAILY_JOB_HOUR_UTC` below zero to suppress
+the current daily job. On shutdown the task is cancelled and awaited.
 
-`daily_loop()` calculates its sleep with `seconds_until_next(hour_utc, now)`,
-then calls `run_daily_jobs()` inside a broad `try/except logger.exception` so
-one failed iteration cannot kill the loop. `run_daily_jobs()` first calls
+`scheduler_loop()` runs `run_due_jobs()` immediately on entry for startup
+catch-up, then ticks every `SCHEDULER_TICK_SECONDS`. Each job stores its
+successful run time in the SQLite `settings` key `last_run:<job name>`.
+Pinned-hour jobs that missed one or more days run once at the next tick after
+their UTC hour; cadence jobs run when their interval has elapsed. A failed job
+logs the exception, does not advance its ledger entry, and does not stop later
+jobs in the registry or kill the loop. `run_daily_jobs()` first calls
 `value_holdings()` and `record_snapshot()`. If valuation or snapshot recording
 raises, it logs and returns `{"snapshot": False, "alert": ""}` without trying
 to alert.
