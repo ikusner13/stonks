@@ -9,7 +9,7 @@ import { ErrorBlock, Panel, SectionSkeleton } from "@/components/common";
 import { ApiError } from "@/api/errors";
 import { useWatchMutation } from "@/api/mutations";
 import { useResearchQuery } from "@/api/queries";
-import { fmtCap, fmtIndicatorValue, fmtNum, pct } from "@/lib/format";
+import { fmtCap, fmtIndicatorValue, fmtNum, fmtUsd, fmtUsd0, pct } from "@/lib/format";
 import type { components } from "@/api/schema";
 
 type Confidence = components["schemas"]["ResearchResponse"]["effective_confidence"];
@@ -128,8 +128,8 @@ function ResearchPage() {
 
           <Panel title="Ticker data">
             <div className="grid gap-3 text-sm md:grid-cols-4">
-              <Metric label="Price" value={fmtCap(data.result.ticker.quote?.price ?? null)} />
-              <Metric label="Change" value={fmtNum(data.result.ticker.quote?.change ?? null)} />
+              <Metric label="Price" value={fmtUsd(data.result.ticker.quote?.price ?? null)} />
+              <Metric label="Change" value={fmtUsd(data.result.ticker.quote?.change ?? null)} />
               <Metric label="Market cap" value={fmtCap(data.result.ticker.fundamentals?.market_cap ?? null)} />
               <Metric label="P/E" value={fmtNum(data.result.ticker.fundamentals?.pe_ratio ?? null)} />
             </div>
@@ -146,7 +146,7 @@ function ResearchPage() {
           <Panel title="Sizing guidance">
             <div className="grid gap-3 md:grid-cols-3">
               <Metric label="Suggested band" value={`${pct(data.sizing.low_pct)} - ${pct(data.sizing.high_pct)}`} />
-              <Metric label="Dollar band" value={`${fmtCap(data.sizing.low_dollars)} - ${fmtCap(data.sizing.high_dollars)}`} />
+              <Metric label="Dollar band" value={`${fmtUsd0(data.sizing.low_dollars)} - ${fmtUsd0(data.sizing.high_dollars)}`} />
               <Metric label="Current weight" value={data.sizing.current_weight == null ? "n/a" : pct(data.sizing.current_weight)} />
             </div>
             <p className="mt-3 text-sm text-muted-foreground">{data.sizing.note}</p>
