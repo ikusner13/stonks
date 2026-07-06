@@ -166,13 +166,11 @@ storage can never break page rendering. The remaining panels and forms are
 then loaded or submitted independently; the daily job can also record that
 UTC day's NAV without a page visit:
 
-- **A) Holdings, cash, and CSV import** — rendered inline on page load (no HTMX
-  round-trip needed for the initial view). Add/remove (`POST /portfolio/holdings`,
-  `POST /portfolio/holdings/remove/{symbol}`), cash updates (`POST /portfolio/cash`),
-  and CSV import (`POST /portfolio/import`) each re-run `value_holdings()` and
-  swap in a fresh `holdings_table` partial. A wrapping holder also listens for
-  `holdings-changed` and refreshes from `GET /portfolio/holdings`, so applied
-  transactions update the authoritative holdings table without reloading the page.
+- **A) Holdings and cash** — rendered inline on page load (no HTMX round-trip
+  needed for the initial view). SnapTrade broker sync is the source of truth for
+  local holdings and cash. The broker sync button emits `holdings-changed`, and
+  the wrapping holder refreshes from `GET /portfolio/holdings` without reloading
+  the page.
 - **B) Health & correlation** — health and the allocation donut are computed
   inline (part of the initial page render, no fetch of their own). Correlation
   is lazy:
@@ -209,8 +207,8 @@ UTC day's NAV without a page visit:
   form; `POST /portfolio/whatif` validates a positive amount, recomputes the
   same valuation/targets, and renders the buy-only `plan_contribution()` result.
 - **F) Optimizer & drift** — the only panel that isn't `hx-trigger="load"`; it
-  fires on form submit (`POST /portfolio/optimize`), seeding from the submitted
-  rows or, if the form is empty, from current holdings. `optimize()` runs in a
+  fires on form submit (`POST /portfolio/optimize`) with only the selected
+  objective and seeds from synced current holdings. `optimize()` runs in a
   worker thread (`anyio.to_thread.run_sync`, since `skfolio`/`numpy` there are
   synchronous and CPU-bound), then `analyze_drift` compares the result's
   current-vs-optimal weights and `frontier_chart()` maps the efficient frontier
@@ -218,14 +216,9 @@ UTC day's NAV without a page visit:
   `partials/portfolio_results.html`.
 - **G) Transactions** — lazy-loaded on `hx-trigger="load, txns-changed from:body"`:
   `GET /portfolio/transactions` computes current valuation, `ReturnsSummary`,
-  and the last 20 ledger rows. `POST /portfolio/transactions` validates and
-  applies one row through `transactions.apply_transaction()`, then returns the
-  same partial with `HX-Trigger: txns-changed, holdings-changed`. CSV import
-  (`POST /portfolio/transactions/import`) uses the same 100 KB / 500 row /
-  UTF-8 BOM-tolerant limits as holdings import and applies valid rows in file
-  order while collecting per-line errors. Deletion
-  (`POST /portfolio/transactions/delete/{id}`) removes only the ledger row and
-  does not reverse holdings or cash.
+  and the last 20 broker-imported ledger rows. Transaction state is mirrored by
+  SnapTrade sync; the portfolio page does not expose manual transaction entry,
+  import, or deletion controls.
 
 The independent portfolio panel routes wrap their real work in try/except where
 generic failures are expected, logging the full traceback and returning
@@ -320,14 +313,14 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
 | `holdings` | `app/portfolio/holdings.py` | Current position rows keyed by symbol: shares and optional average cost. |
 | `targets` | `app/portfolio/plan.py` | User-owned target allocation rows keyed by symbol; weights are stored as fractions. |
 | `nav_snapshots` | `app/portfolio/snapshots.py` | One NAV row per UTC day from a portfolio page visit or daily job: securities value, cash, total NAV, cost, and unrealized P&L. |
-| `transactions` | `app/portfolio/transactions.py` | Optional ledger rows: date, side, symbol, shares, price, amount, realized P/L, note, optional broker `external_id`, and creation timestamp. Broker-imported rows are ledger-only and deduped by `external_id`. |
+| `transactions` | `app/portfolio/transactions.py` | Broker-mirrored ledger rows: date, side, symbol, shares, price, amount, realized P/L, note, optional broker `external_id`, and creation timestamp. Broker-imported rows are ledger-only and deduped by `external_id`. |
 | `price_ranges` | `app/alerts.py` | Rolling 52-week high/low state per symbol, refreshed from price history and updated when live quotes break the stored range. |
 | `alerts_sent` | `app/alerts.py` | Shared idempotency ledger keyed by alert kind and deterministic `dedupe_key`; SEC filing alerts use accession numbers as globally unique keys, and webhook failures leave the ledger unwritten for retry. |
 
 ## Error-handling conventions
 
 - **Error partials over 500s.** Most web routes that do real work (research,
-  discover, portfolio import, transaction read/add/delete, targets, rebalance,
+  discover, transaction read, targets, rebalance,
   NAV, correlation, performance, and tearsheet) catch expected or generic
   failures and return a rendered
   `partials/error.html` fragment — HTMX swaps this into the panel's target, so

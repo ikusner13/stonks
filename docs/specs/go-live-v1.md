@@ -22,7 +22,7 @@ B (LLM budget guard)                           │  independent of A
                                                ▼
 C (cash tracking)  ──►  D (NAV snapshots)      D, E, F all touch portfolio.html —
                    ──►  E (targets+rebalance)  run D, E, F SEQUENTIALLY (or in
-                        F (CSV import)         isolated worktrees, merge in order D→E→F)
+                        F (broker holdings)    isolated worktrees, merge in order D→E→F)
 G (docs+README sweep, final)  — after all
 ```
 
@@ -209,24 +209,15 @@ consumers change:
 
 - `partials/holdings_table.html`: footer rows — Cash $X, Total (incl. cash) $Y,
   Dry powder Z%.
-- `portfolio.html`: small form (HTMX `POST /portfolio/cash`, one number input,
-  re-renders holdings_table partial).
-- Route:
-
-```python
-@app.post("/portfolio/cash", response_class=HTMLResponse)
-async def portfolio_cash_set(request, cash: str = Form("")):
-    # parse float, negative/unparseable → ignore (re-render current state, matching
-    # the existing lenient holdings-form pattern); else db.set_cash(value)
-    # return holdings_table partial with fresh value_holdings()
-```
+- Portfolio cash is now broker-mirrored by SnapTrade sync; there is no manual
+  cash state-entry route or form.
 
 ### C4. Tests
 
 - get/set cash round-trip, default 0, negative rejected.
 - `value_holdings` cash math (cash-only portfolio: total_value 0, total_with_cash > 0,
   cash_pct 1.0).
-- Route test for POST /portfolio/cash happy + garbage input.
+- Broker sync route coverage owns cash refresh behavior.
 
 Docs: methodology.md §position-sizing (base now includes cash), README feature tour.
 
@@ -385,39 +376,11 @@ formulas above; README feature tour bullet.
 
 ---
 
-## Task F — CSV holdings import
+## Task F — Broker-mirrored holdings
 
-### F1. Route
-
-```python
-@app.post("/portfolio/import", response_class=HTMLResponse)
-async def portfolio_import(request: Request, file: UploadFile = File(...)):
-```
-
-- Requires `python-multipart` (already a fastapi[standard] dep — verify, else add).
-- Limits: reject > 100 KB or > 500 data rows with a clear error partial.
-- Format: header row required, case-insensitive match on `symbol`, `shares`,
-  optional `avg_cost` (extra columns ignored; UTF-8 BOM tolerated —
-  `codecs`/`utf-8-sig`). Rows: symbol uppercased; shares must parse float > 0;
-  avg_cost blank/unparseable → None.
-- Semantics: `upsert_holding` per valid row (same overwrite semantics as the form).
-  Invalid rows are collected as `"line N: reason"`, not fatal.
-- Response: `partials/holdings_table.html` extended with an optional import summary
-  block (`imported=12, skipped=["line 3: bad shares 'abc'"]`) — pass via template
-  context, render above the table when present.
-
-### F2. UI
-
-`portfolio.html`: file input + upload button next to the add-holding form
-(`hx-post="/portfolio/import" hx-encoding="multipart/form-data"` targeting the
-holdings table).
-
-### F3. Tests (new `tests/test_import.py`)
-
-- Happy path CSV (with BOM, extra column, mixed-case header).
-- Bad rows skipped with line numbers; all-bad file imports nothing.
-- Oversize row-count rejected.
-- Route test via `TestClient` multipart upload.
+This earlier holdings file-upload plan has been superseded. Holdings are mirrored
+from SnapTrade broker sync, and the portfolio page exposes no local holdings
+state-entry or file-upload controls.
 
 Docs: README feature tour + operations.md (CSV format snippet).
 

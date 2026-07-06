@@ -1,18 +1,4 @@
 <div>
-  {% if import_summary %}
-  <div class="mb-4 rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-3 text-sm">
-    <p class="font-semibold">Imported {{ import_summary.imported }} transaction{{ '' if import_summary.imported == 1 else 's' }}.</p>
-    {% if import_summary.skipped %}
-    <p class="mt-1 text-[var(--sea-ink-soft)]">Skipped {{ import_summary.skipped | length }} row{{ '' if import_summary.skipped | length == 1 else 's' }}:</p>
-    <ul class="mt-1 list-disc pl-5 text-[var(--sea-ink-soft)]">
-      {% for item in import_summary.skipped %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-  </div>
-  {% endif %}
-
   <div class="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
     <div class="rounded-xl border border-[var(--line)] px-4 py-3">
       <p class="text-xs text-[var(--sea-ink-soft)]">MWR</p>
@@ -87,80 +73,6 @@
   </div>
   {% endif %}
 
-  <form
-    hx-post="/portfolio/transactions"
-    hx-target="#transactions-panel"
-    hx-swap="innerHTML"
-    class="mb-5">
-    <div class="flex flex-wrap items-end gap-3">
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-[var(--sea-ink-soft)]">Date</label>
-        <input name="ts" type="date" required value="{{ valuation.asof[:10] }}"
-          class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-      </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-[var(--sea-ink-soft)]">Side</label>
-        <select name="side" required class="w-32 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm">
-          <option value="buy">buy</option>
-          <option value="sell">sell</option>
-          <option value="deposit">deposit</option>
-          <option value="withdraw">withdraw</option>
-          <option value="dividend">dividend</option>
-        </select>
-      </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-[var(--sea-ink-soft)]">Symbol</label>
-        <input name="symbol" placeholder="AAPL"
-          class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm uppercase" />
-      </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-[var(--sea-ink-soft)]">Shares</label>
-        <input name="shares" inputmode="decimal" placeholder="10"
-          class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-      </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-[var(--sea-ink-soft)]">Price</label>
-        <input name="price" inputmode="decimal" placeholder="150.00"
-          class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-      </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-[var(--sea-ink-soft)]">Amount</label>
-        <input name="amount" inputmode="decimal" placeholder="1000.00"
-          class="w-32 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-      </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-[var(--sea-ink-soft)]">Note</label>
-        <input name="note" placeholder="optional"
-          class="w-44 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-      </div>
-      <button type="submit"
-        class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
-        Add Transaction
-      </button>
-    </div>
-    <p class="mt-2 text-xs text-[var(--sea-ink-soft)]">Buy/sell amount is computed from shares × price; deposit, withdraw, and dividend use amount.</p>
-  </form>
-
-  <form
-    hx-post="/portfolio/transactions/import"
-    hx-encoding="multipart/form-data"
-    hx-target="#transactions-panel"
-    hx-swap="innerHTML"
-    class="mb-6">
-    <div class="flex flex-wrap items-end gap-3">
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-[var(--sea-ink-soft)]">Import transactions CSV</label>
-        <input name="file" type="file" accept=".csv,text/csv" required
-          class="max-w-72 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-      </div>
-      <button type="submit"
-        class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
-        Upload
-      </button>
-    </div>
-    <p class="mt-2 text-xs text-[var(--sea-ink-soft)]">CSV columns: date, side, symbol, shares, price, amount, note. Rows apply in file order; put them oldest first.</p>
-  </form>
-
   <h3 class="mb-2 text-sm font-semibold">Last 20 transactions</h3>
   {% if not transactions %}
   <p class="text-sm text-[var(--sea-ink-soft)]">No transactions yet.</p>
@@ -177,7 +89,6 @@
           <th class="pb-2 text-right font-medium">Amount</th>
           <th class="pb-2 text-right font-medium">Realized P&amp;L</th>
           <th class="pb-2 text-left font-medium">Note</th>
-          <th class="pb-2"></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-[var(--line)]">
@@ -195,20 +106,10 @@
             {% if txn.realized_pl is not none %}{{ '+' if realized_pos else '' }}${{ txn.realized_pl | fmt_num }}{% else %}—{% endif %}
           </td>
           <td class="py-2 pr-4 text-[var(--sea-ink-soft)]">{{ txn.note }}</td>
-          <td class="py-2 text-right">
-            <button
-              hx-post="/portfolio/transactions/delete/{{ txn.id }}"
-              hx-target="#transactions-panel"
-              hx-swap="innerHTML"
-              class="rounded-full border border-[var(--line)] px-2.5 py-0.5 text-xs opacity-0 transition-opacity group-hover:opacity-100">
-              ×
-            </button>
-          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <p class="mt-2 text-xs text-[var(--sea-ink-soft)]">Deleting a transaction removes the record, not its effect on holdings or cash.</p>
   {% endif %}
 </div>

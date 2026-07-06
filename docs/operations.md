@@ -84,44 +84,13 @@ account ID shown in the sync error. Successful sync stores `last_broker_sync`
 in SQLite settings; failed SnapTrade fetches raise and do not advance the
 setting, so the scheduler retries on the next due tick.
 
-## Portfolio CSV import
+## Broker-mirrored portfolio state
 
-The portfolio page accepts holdings CSV uploads up to 100 KB and 500 data rows.
-The header row is required; `symbol` and `shares` are required columns,
-`avg_cost` is optional, and extra columns are ignored. Headers are
-case-insensitive and UTF-8 BOMs are tolerated.
-
-```csv
-symbol,shares,avg_cost
-AAPL,10,150.25
-MSFT,4,
-```
-
-Symbols are uppercased before saving. `shares` must be a positive number;
-blank or unparseable `avg_cost` values are saved as empty. Bad data rows are
-reported with line numbers and do not block valid rows from importing.
-
-## Transaction CSV import
-
-The transactions panel accepts CSV uploads with the same 100 KB file limit,
-500 data-row limit, UTF-8/UTF-8-BOM decoding, and case-insensitive headers as
-holdings import. The header must include `date` and `side`; these columns are
-recognized when present:
-
-```csv
-date,side,symbol,shares,price,amount,note
-2026-01-01,deposit,,,,10000,initial cash
-2026-01-02,buy,AAPL,10,150,,first lot
-2026-02-01,sell,AAPL,2,175,,trim
-2026-03-01,withdraw,,,,500,cash out
-```
-
-Rows are applied in file order, so put them oldest first. Buy/sell rows ignore
-the CSV `amount` value and compute amount from `shares * price`; deposit and
-withdraw rows require `amount`. Each valid row mutates recorded cash and/or the
-authoritative holdings table immediately. Bad rows are reported with line
-numbers and do not block later rows. Deleting a transaction later removes only
-the ledger record, not its cash or holdings effect.
+The portfolio page no longer accepts local holdings, cash, or transaction
+state entry. SnapTrade sync mirrors broker holdings, cash, and activity into
+SQLite; if local portfolio state disagrees with the broker snapshot, the next
+sync overwrites the local state. User-entered portfolio intent is limited to
+target allocations and contribution what-if previews.
 
 ## Daily portfolio job and alerts
 

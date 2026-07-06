@@ -5,9 +5,9 @@ from app.indicators.schemas import Indicator, IndicatorScorecard
 from app.llm.pipeline import InsufficientDataError
 from app.portfolio import holdings as holdings_mod
 from app.portfolio.decision_support import CorrelationInsight, PositionSizeGuidance, RegimeSignal
-from app.portfolio.holdings import HoldingValuation, PortfolioValuation
+from app.portfolio.holdings import HoldingValuation, PortfolioValuation, upsert_holding
 from app.portfolio.optimize import FrontierPoint, OptimizeResult, PortfolioMetrics
-from app.schemas import Critique, FabricationCheck, ResearchResult, Thesis, TickerData, TickerReport
+from app.schemas import Critique, FabricationCheck, Quote, ResearchResult, Thesis, TickerData, TickerReport
 from app.web import app as web_app
 
 
@@ -89,6 +89,28 @@ def _optimizer_result(symbols: list[str]) -> OptimizeResult:
         efficient_frontier=[],
         warnings=[],
     )
+
+
+def _seed_optimizer_holdings(monkeypatch, tmp_path, prices: dict[str, float]) -> None:
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "stocks.db")
+    db.init_db()
+    holdings_mod.init_holdings_db()
+
+    async def fetch_ticker_data(symbol: str) -> TickerData:
+        return TickerData(
+            symbol=symbol,
+            fetched_at="2026-07-05T00:00:00Z",
+            quote=Quote(
+                price=prices[symbol],
+                currency="USD",
+                change=0,
+                change_percent=0,
+            ),
+        )
+
+    monkeypatch.setattr(holdings_mod, "fetch_ticker_data", fetch_ticker_data)
+    for symbol, price in prices.items():
+        upsert_holding(symbol, 1_000 / price, None)
 
 
 def test_research_report_runtime_error_returns_error_partial(monkeypatch):
@@ -182,7 +204,7 @@ def test_indicator_value_formatter_formats_usd_and_count():
     assert web_app._fmt_indicator_value(123_456_789.0, "count") == "123,456,789"
 
 
-def test_optimizer_excludes_sub_five_holding_with_warning(monkeypatch):
+def test_optimizer_excludes_sub_five_holding_with_warning(monkeypatch, tmp_path):
     seen = {}
 
     def fake_optimize(req):
@@ -190,16 +212,12 @@ def test_optimizer_excludes_sub_five_holding_with_warning(monkeypatch):
         return _optimizer_result(seen["symbols"])
 
     monkeypatch.setattr(web_app, "optimize", fake_optimize)
+    _seed_optimizer_holdings(monkeypatch, tmp_path, {"AAA": 25, "PENY": 4.99, "BBB": 30})
     client = TestClient(web_app.app)
 
     response = client.post(
         "/portfolio/optimize",
-        data={
-            "symbol": ["AAA", "PENY", "BBB"],
-            "value": ["1000", "500", "1000"],
-            "price": ["25", "4.99", "30"],
-            "objective": "max_sharpe",
-        },
+        data={"objective": "max_sharpe"},
     )
 
     assert response.status_code == 200
@@ -211,49 +229,23 @@ def test_optimizer_excludes_sub_five_holding_with_warning(monkeypatch):
     assert "Optimal (max_sharpe)" in response.text
 
 
-def test_optimizer_skips_when_fewer_than_two_symbols_remain(monkeypatch):
+def test_optimizer_skips_when_fewer_than_two_symbols_remain(monkeypatch, tmp_path):
     def fail_optimize(req):
         raise AssertionError("optimizer should not run")
 
     monkeypatch.setattr(web_app, "optimize", fail_optimize)
+    _seed_optimizer_holdings(monkeypatch, tmp_path, {"AAA": 25, "PENY": 4.99})
     client = TestClient(web_app.app)
 
     response = client.post(
         "/portfolio/optimize",
-        data={
-            "symbol": ["AAA", "PENY"],
-            "value": ["1000", "500"],
-            "price": ["25", "4.99"],
-            "objective": "max_sharpe",
-        },
+        data={"objective": "max_sharpe"},
     )
 
     assert response.status_code == 200
     assert "excluded from mean-variance optimization" in response.text
     assert "sample statistics on illiquid micro-caps are unreliable" in response.text
     assert "PENY:" in response.text
-
-
-def test_portfolio_cash_post_updates_cash_and_ignores_garbage(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "DB_PATH", tmp_path / "stocks.db")
-    db.init_db()
-    holdings_mod.init_holdings_db()
-    client = TestClient(web_app.app)
-
-    response = client.post("/portfolio/cash", data={"cash": "123.45"})
-
-    assert response.status_code == 200
-    assert db.get_cash() == 123.45
-    assert "Cash" in response.text
-    assert "$123.45" in response.text
-    assert "Total (incl. cash)" in response.text
-    assert "100.0%" in response.text
-
-    response = client.post("/portfolio/cash", data={"cash": "garbage"})
-
-    assert response.status_code == 200
-    assert db.get_cash() == 123.45
-    assert "$123.45" in response.text
 
 
 def test_portfolio_health_partial_contains_allocation_donut_and_legend(monkeypatch):
@@ -534,7 +526,7 @@ def test_tax_partial_renders_flags(monkeypatch):
     assert "not tax advice" in response.text
 
 
-def test_optimizer_partial_contains_frontier_polyline(monkeypatch):
+def test_optimizer_partial_contains_frontier_polyline(monkeypatch, tmp_path):
     def fake_optimize(req):
         metrics = PortfolioMetrics(
             weights={"AAA": 0.5, "BBB": 0.5},
@@ -558,16 +550,12 @@ def test_optimizer_partial_contains_frontier_polyline(monkeypatch):
         )
 
     monkeypatch.setattr(web_app, "optimize", fake_optimize)
+    _seed_optimizer_holdings(monkeypatch, tmp_path, {"AAA": 25, "BBB": 30})
     client = TestClient(web_app.app)
 
     response = client.post(
         "/portfolio/optimize",
-        data={
-            "symbol": ["AAA", "BBB"],
-            "value": ["1000", "1000"],
-            "price": ["25", "30"],
-            "objective": "max_sharpe",
-        },
+        data={"objective": "max_sharpe"},
     )
 
     assert response.status_code == 200

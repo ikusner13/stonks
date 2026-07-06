@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from math import isclose
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app import config, db
 from app.portfolio import holdings as holdings_mod
@@ -17,8 +16,6 @@ from app.portfolio.transactions import (
     list_transactions,
     xirr,
 )
-from app.schemas import Quote, TickerData
-from app.web import app as web_app
 
 
 def _txn(
@@ -257,96 +254,3 @@ def test_compute_returns_unpriced_portfolio_has_no_mwr():
     assert summary.mwr_annualized is None
     assert summary.mwr_note == "portfolio not fully priced"
 
-
-def _client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    async def fetch_ticker_data(symbol: str) -> TickerData:
-        return TickerData(
-            symbol=symbol,
-            fetched_at="2026-07-05T00:00:00Z",
-            quote=Quote(price=10, currency="USD", change=0, change_percent=0),
-        )
-
-    monkeypatch.setattr(holdings_mod, "fetch_ticker_data", fetch_ticker_data)
-    return TestClient(web_app.app)
-
-
-def test_transaction_route_valid_buy_updates_holdings(monkeypatch):
-    client = _client(monkeypatch)
-    db.set_cash(1_000)
-
-    response = client.post(
-        "/portfolio/transactions",
-        data={
-            "ts": "2026-01-02",
-            "side": "buy",
-            "symbol": "aapl",
-            "shares": "3",
-            "price": "10",
-            "amount": "999999",
-            "note": "ignored amount",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.headers["HX-Trigger"] == "txns-changed, holdings-changed"
-    assert list_holdings() == [Holding(symbol="AAPL", shares=3, avg_cost=10)]
-    assert "ignored amount" in response.text
-    assert "$30" in response.text
-
-    holdings = client.get("/portfolio/holdings")
-    assert "AAPL" in holdings.text
-    assert "3" in holdings.text
-
-
-def test_transaction_route_invalid_returns_error_partial(monkeypatch):
-    client = _client(monkeypatch)
-
-    response = client.post(
-        "/portfolio/transactions",
-        data={
-            "ts": "2026-01-02",
-            "side": "sell",
-            "symbol": "AAPL",
-            "shares": "1",
-            "price": "10",
-            "amount": "",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "error-panel" in response.text
-    assert "sell shares exceed held shares" in response.text
-
-
-def test_transaction_csv_import_happy_path_and_bad_rows(monkeypatch):
-    client = _client(monkeypatch)
-    csv = (
-        "date,side,symbol,shares,price,amount,note\n"
-        "2026-01-01,deposit,,,,1000,seed\n"
-        "2026-01-02,buy,AAPL,2,10,999,buy ignores amount\n"
-        "2026-01-03,buy,MSFT,1,,10,bad\n"
-    )
-
-    response = client.post(
-        "/portfolio/transactions/import",
-        files={"file": ("txns.csv", csv.encode(), "text/csv")},
-    )
-
-    assert response.status_code == 200
-    assert response.headers["HX-Trigger"] == "txns-changed, holdings-changed"
-    assert "Imported 2 transactions" in response.text
-    assert "line 4: price must be &gt; 0" in response.text
-    assert list_holdings() == [Holding(symbol="AAPL", shares=2, avg_cost=10)]
-    assert db.get_cash() == 980
-
-
-def test_transaction_delete_removes_row_not_effect(monkeypatch):
-    client = _client(monkeypatch)
-    saved = apply_transaction(_txn("2026-01-01", "deposit", amount=500))
-
-    response = client.post(f"/portfolio/transactions/delete/{saved.id}")
-
-    assert response.status_code == 200
-    assert list_transactions() == []
-    assert db.get_cash() == 500
-    assert "No transactions yet" in response.text

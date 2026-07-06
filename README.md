@@ -99,10 +99,9 @@ your saved holdings, transaction ledger, and watchlist entries are gone for good
     and treats any existing position weight as already-consumed headroom.
 - **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
   any research report, and used to prefill the portfolio page.
-- **Portfolio** — holdings valuation, CSV holdings import, dry-powder tracking,
-  daily NAV snapshots, optional Discord drift alerts, an optional
-  transactions ledger, and server-rendered visuals, plus decision-support
-  panels:
+- **Portfolio** — SnapTrade-synced holdings, cash, and transactions, dry-powder
+  tracking, daily NAV snapshots, optional Discord drift alerts, and
+  server-rendered visuals, plus decision-support panels:
   - **Health**: concentration by top-1/3/5 holding weight, in plain language,
     with an allocation donut across priced holdings and cash.
   - **Correlation**: pairwise return correlation flags holdings that move
@@ -118,10 +117,8 @@ your saved holdings, transaction ledger, and watchlist entries are gone for good
     what-if preview for new cash.
   - **Optimizer**: mean-variance optimal weights (max-Sharpe or min-risk) with
     an SVG efficient frontier and current-vs-optimal drift signals.
-  - **Transactions**: deposits, withdrawals, buys, sells, and CSV import apply
-    to recorded cash and holdings; the ledger reports realized P/L and
-    money-weighted return. Deleting a row removes the record only, not its
-    applied effect.
+  - **Transactions**: imported broker activity reports realized P/L,
+    external flows, dividends, and money-weighted return.
 
 All of the above is deterministic and grounded in fetched or computed data —
 never advice, never an order.

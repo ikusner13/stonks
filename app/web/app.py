@@ -8,15 +8,12 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from csv import Error as CsvError
-from csv import reader as csv_reader
 from datetime import UTC, datetime
-from io import StringIO
 from math import isfinite
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, Form, Query, Request, UploadFile
+from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -41,8 +38,6 @@ from ..portfolio.decision_support import (
 )
 from ..portfolio.holdings import (
     init_holdings_db,
-    remove_holding,
-    upsert_holding,
     value_holdings,
 )
 from ..portfolio.optimize import Holding, NoDataError, OptimizeRequest, optimize
@@ -63,10 +58,7 @@ from ..portfolio.snapshots import (
 )
 from ..portfolio.tax import compute_tax_signals
 from ..portfolio.transactions import (
-    Transaction,
-    apply_transaction,
     compute_returns,
-    delete_transaction,
     init_transactions_db,
     list_transactions,
 )
@@ -96,10 +88,6 @@ OPTIMIZER_EXCLUSION_WARNING = (
     "excluded from mean-variance optimization: sample statistics on illiquid micro-caps "
     "are unreliable"
 )
-
-MAX_IMPORT_BYTES = 100 * 1024
-MAX_IMPORT_ROWS = 500
-
 
 # --- Jinja filters ----------------------------------------------------------
 
@@ -377,14 +365,6 @@ async def portfolio_page(request: Request):
         record_snapshot(valuation)
     except Exception:
         logger.warning("nav snapshot write failed", exc_info=True)
-    optimizer_rows = [
-        {
-            "symbol": v.symbol,
-            "value": round(v.market_value, 2) if v.market_value is not None else None,
-            "price": v.price,
-        }
-        for v in valuation.holdings
-    ]
     health = assess_portfolio_health(valuation)
     allocation_slices = _allocation_slices(valuation)
     return templates.TemplateResponse(
@@ -393,7 +373,6 @@ async def portfolio_page(request: Request):
         {
             "active": "portfolio",
             "valuation": valuation,
-            "optimizer_rows": optimizer_rows,
             "health": health,
             "allocation_slices": allocation_slices,
             "ds_disclaimer": DS_DISCLAIMER,
@@ -402,11 +381,6 @@ async def portfolio_page(request: Request):
             "sync_result": None,
         },
     )
-
-
-@app.get("/portfolio/holdings/row", response_class=HTMLResponse)
-def portfolio_holdings_row(request: Request):
-    return templates.TemplateResponse(request, "partials/portfolio_row.html", {"r": None})
 
 
 @app.post("/portfolio/broker/sync", response_class=HTMLResponse)
@@ -436,159 +410,19 @@ async def portfolio_holdings(request: Request):
     init_holdings_db()
     valuation = await value_holdings()
     return templates.TemplateResponse(
-        request, "partials/holdings_table.html", {"valuation": valuation}
-    )
-
-
-@app.post("/portfolio/holdings", response_class=HTMLResponse)
-async def portfolio_holdings_add(
-    request: Request,
-    symbol: str = Form(""),
-    shares: str = Form(""),
-    avg_cost: str = Form(""),
-):
-    sym = symbol.strip().upper()
-    if not sym:
-        valuation = await value_holdings()
-        return templates.TemplateResponse(
-            request, "partials/holdings_table.html", {"valuation": valuation}
-        )
-    try:
-        shares_float = float(shares)
-    except (ValueError, TypeError):
-        valuation = await value_holdings()
-        return templates.TemplateResponse(
-            request, "partials/holdings_table.html", {"valuation": valuation}
-        )
-    avg_cost_float: float | None = None
-    if avg_cost and avg_cost.strip():
-        try:
-            avg_cost_float = float(avg_cost)
-        except ValueError:
-            pass
-    upsert_holding(sym, shares_float, avg_cost_float)
-    valuation = await value_holdings()
-    return templates.TemplateResponse(
-        request, "partials/holdings_table.html", {"valuation": valuation}
-    )
-
-
-@app.post("/portfolio/holdings/remove/{symbol}", response_class=HTMLResponse)
-async def portfolio_holdings_remove(request: Request, symbol: str):
-    remove_holding(symbol.upper())
-    valuation = await value_holdings()
-    return templates.TemplateResponse(
-        request, "partials/holdings_table.html", {"valuation": valuation}
-    )
-
-
-@app.post("/portfolio/cash", response_class=HTMLResponse)
-async def portfolio_cash_set(request: Request, cash: str = Form("")):
-    try:
-        db.set_cash(float(cash))
-    except (TypeError, ValueError):
-        pass
-    valuation = await value_holdings()
-    return templates.TemplateResponse(
-        request, "partials/holdings_table.html", {"valuation": valuation}
-    )
-
-
-@app.post("/portfolio/import", response_class=HTMLResponse)
-async def portfolio_import(request: Request, file: UploadFile = File(...)):
-    raw = await file.read()
-    if len(raw) > MAX_IMPORT_BYTES:
-        return _error_partial(request, "CSV import failed: file must be 100 KB or smaller.")
-
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return _error_partial(request, "CSV import failed: file must be UTF-8 encoded.")
-
-    try:
-        rows = list(csv_reader(StringIO(text)))
-    except CsvError:
-        return _error_partial(request, "CSV import failed: unable to parse CSV.")
-
-    if not rows:
-        return _error_partial(request, "CSV import failed: header row is required.")
-
-    header = [col.strip().lower() for col in rows[0]]
-    column_map = {name: index for index, name in enumerate(header) if name}
-    if "symbol" not in column_map or "shares" not in column_map:
-        return _error_partial(
-            request, "CSV import failed: header must include symbol and shares columns."
-        )
-
-    data_rows = rows[1:]
-    if len(data_rows) > MAX_IMPORT_ROWS:
-        return _error_partial(request, "CSV import failed: maximum 500 data rows allowed.")
-
-    imported = 0
-    skipped: list[str] = []
-    symbol_index = column_map["symbol"]
-    shares_index = column_map["shares"]
-    avg_cost_index = column_map.get("avg_cost")
-
-    for line_number, row in enumerate(data_rows, start=2):
-        if not any(cell.strip() for cell in row):
-            continue
-
-        symbol = row[symbol_index].strip().upper() if symbol_index < len(row) else ""
-        if not symbol:
-            skipped.append(f"line {line_number}: missing symbol")
-            continue
-
-        raw_shares = row[shares_index].strip() if shares_index < len(row) else ""
-        try:
-            shares = float(raw_shares)
-        except ValueError:
-            skipped.append(f"line {line_number}: bad shares '{raw_shares}'")
-            continue
-        if shares <= 0 or not isfinite(shares):
-            skipped.append(f"line {line_number}: shares must be > 0")
-            continue
-
-        avg_cost: float | None = None
-        if avg_cost_index is not None and avg_cost_index < len(row):
-            raw_avg_cost = row[avg_cost_index].strip()
-            if raw_avg_cost:
-                try:
-                    avg_cost = float(raw_avg_cost)
-                except ValueError:
-                    avg_cost = None
-                if avg_cost is not None and not isfinite(avg_cost):
-                    avg_cost = None
-
-        upsert_holding(symbol, shares, avg_cost)
-        imported += 1
-
-    valuation = await value_holdings()
-    return templates.TemplateResponse(
         request,
         "partials/holdings_table.html",
-        {
-            "valuation": valuation,
-            "import_summary": {"imported": imported, "skipped": skipped},
-        },
+        {"valuation": valuation, "broker_sync_configured": config.SNAPTRADE_CONFIGURED},
     )
 
 
-def _parse_optional_form_float(raw: str | None) -> float | None:
-    if raw is None or not raw.strip():
-        return None
-    return float(raw)
-
-
-async def _transactions_context(import_summary: dict | None = None) -> dict:
+async def _transactions_context() -> dict:
     init_holdings_db()
     init_transactions_db()
     valuation = await value_holdings()
     return {
-        "valuation": valuation,
         "returns": compute_returns(valuation),
         "transactions": list_transactions(limit=20),
-        "import_summary": import_summary,
     }
 
 
@@ -605,144 +439,6 @@ async def portfolio_transactions(request: Request):
         return _error_partial(
             request, "Transactions failed — see server logs.", "/portfolio/transactions"
         )
-
-
-@app.post("/portfolio/transactions", response_class=HTMLResponse)
-async def portfolio_transaction_add(
-    request: Request,
-    ts: str = Form(""),
-    side: str = Form(""),
-    symbol: str = Form(""),
-    shares: str = Form(""),
-    price: str = Form(""),
-    amount: str = Form(""),
-    note: str = Form(""),
-):
-    try:
-        side_clean = side.strip().lower()
-        parsed_shares = _parse_optional_form_float(shares)
-        parsed_price = _parse_optional_form_float(price)
-        parsed_amount = (
-            float(parsed_shares or 0) * float(parsed_price or 0)
-            if side_clean in {"buy", "sell"}
-            else float(amount)
-        )
-        apply_transaction(
-            Transaction(
-                ts=ts.strip(),
-                side=side_clean,
-                symbol=symbol.strip() or None,
-                shares=parsed_shares,
-                price=parsed_price,
-                amount=parsed_amount,
-                realized_pl=None,
-                note=note.strip(),
-            )
-        )
-        response = templates.TemplateResponse(
-            request,
-            "partials/transactions.html",
-            await _transactions_context(),
-        )
-        response.headers["HX-Trigger"] = "txns-changed, holdings-changed"
-        return response
-    except (TypeError, ValueError) as e:
-        return _error_partial(request, str(e))
-    except Exception:
-        logger.exception("portfolio transaction add failed")
-        return _error_partial(request, "Transaction failed — see server logs.")
-
-
-@app.post("/portfolio/transactions/delete/{txn_id}", response_class=HTMLResponse)
-async def portfolio_transaction_delete(request: Request, txn_id: int):
-    try:
-        delete_transaction(txn_id)
-        response = templates.TemplateResponse(
-            request,
-            "partials/transactions.html",
-            await _transactions_context(),
-        )
-        response.headers["HX-Trigger"] = "txns-changed"
-        return response
-    except Exception:
-        logger.exception("portfolio transaction delete failed")
-        return _error_partial(request, "Transaction delete failed — see server logs.")
-
-
-@app.post("/portfolio/transactions/import", response_class=HTMLResponse)
-async def portfolio_transactions_import(request: Request, file: UploadFile = File(...)):
-    raw = await file.read()
-    if len(raw) > MAX_IMPORT_BYTES:
-        return _error_partial(request, "CSV import failed: file must be 100 KB or smaller.")
-
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return _error_partial(request, "CSV import failed: file must be UTF-8 encoded.")
-
-    try:
-        rows = list(csv_reader(StringIO(text)))
-    except CsvError:
-        return _error_partial(request, "CSV import failed: unable to parse CSV.")
-
-    if not rows:
-        return _error_partial(request, "CSV import failed: header row is required.")
-
-    header = [col.strip().lower() for col in rows[0]]
-    column_map = {name: index for index, name in enumerate(header) if name}
-    if "date" not in column_map or "side" not in column_map:
-        return _error_partial(request, "CSV import failed: header must include date and side.")
-
-    data_rows = rows[1:]
-    if len(data_rows) > MAX_IMPORT_ROWS:
-        return _error_partial(request, "CSV import failed: maximum 500 data rows allowed.")
-
-    def cell(row: list[str], name: str) -> str:
-        index = column_map.get(name)
-        if index is None or index >= len(row):
-            return ""
-        return row[index].strip()
-
-    imported = 0
-    skipped: list[str] = []
-    for line_number, row in enumerate(data_rows, start=2):
-        if not any(col.strip() for col in row):
-            continue
-        try:
-            side_clean = cell(row, "side").lower()
-            raw_shares = cell(row, "shares")
-            raw_price = cell(row, "price")
-            shares_value = float(raw_shares) if raw_shares else None
-            price_value = float(raw_price) if raw_price else None
-            raw_amount = cell(row, "amount")
-            amount_value = (
-                float(shares_value or 0) * float(price_value or 0)
-                if side_clean in {"buy", "sell"}
-                else float(raw_amount)
-            )
-            apply_transaction(
-                Transaction(
-                    ts=cell(row, "date"),
-                    side=side_clean,
-                    symbol=cell(row, "symbol") or None,
-                    shares=shares_value,
-                    price=price_value,
-                    amount=amount_value,
-                    realized_pl=None,
-                    note=cell(row, "note"),
-                )
-            )
-            imported += 1
-        except (TypeError, ValueError) as e:
-            skipped.append(f"line {line_number}: {e}")
-
-    response = templates.TemplateResponse(
-        request,
-        "partials/transactions.html",
-        await _transactions_context({"imported": imported, "skipped": skipped}),
-    )
-    response.headers["HX-Trigger"] = "txns-changed, holdings-changed"
-    return response
 
 
 def _parse_target_form(symbols: list[str], weights_pct: list[str]) -> list[Target]:
@@ -1063,35 +759,17 @@ async def portfolio_optimize(request: Request):
     import anyio
 
     form = await request.form()
-    symbols = form.getlist("symbol")
-    values = form.getlist("value")
-    prices = form.getlist("price")
     objective = form.get("objective", "max_sharpe")
     excluded_symbols: list[str] = []
 
-    # If no symbols passed via form, seed from holdings
-    if not any((s or "").strip() for s in symbols):
-        valuation = await value_holdings()
-        holdings = []
-        for v in valuation.holdings:
-            if v.price is not None and v.price < PENNY_PRICE_MAX:
-                excluded_symbols.append(v.symbol)
-                continue
-            if v.market_value:
-                holdings.append(Holding(symbol=v.symbol, value=v.market_value))
-    else:
-        holdings: list[Holding] = []
-        for index, (sym, val) in enumerate(zip(symbols, values)):
-            sym = (sym or "").strip().upper()
-            if not sym:
-                continue
-            raw_price = prices[index] if index < len(prices) else ""
-            price = float(raw_price) if raw_price and raw_price.strip() else None
-            if price is not None and price < PENNY_PRICE_MAX:
-                excluded_symbols.append(sym)
-                continue
-            value = float(val) if val and val.strip() else None
-            holdings.append(Holding(symbol=sym, value=value))
+    valuation = await value_holdings()
+    holdings = []
+    for v in valuation.holdings:
+        if v.price is not None and v.price < PENNY_PRICE_MAX:
+            excluded_symbols.append(v.symbol)
+            continue
+        if v.market_value:
+            holdings.append(Holding(symbol=v.symbol, value=v.market_value))
 
     exclusion_warnings = _optimizer_exclusion_warnings(excluded_symbols)
 

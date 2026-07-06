@@ -3,7 +3,7 @@
 {% block content %}
 <main class="page-wrap px-4 pb-12 pt-10">
   <h1 class="mb-1 text-3xl font-bold tracking-tight">Portfolio</h1>
-  <p class="mb-8 text-sm text-[var(--sea-ink-soft)]">Track your real positions, optimize allocation, and measure historical performance.</p>
+  <p class="mb-8 text-sm text-[var(--sea-ink-soft)]">Review synced broker positions, optimize allocation, and measure historical performance.</p>
 
   {% include "partials/broker_sync.html" %}
 
@@ -11,83 +11,13 @@
   <section class="mb-10">
     <h2 class="mb-4 text-lg font-semibold">Holdings</h2>
 
-    {# Live valuation table — refreshed after each add/remove or transaction. #}
+    {# Live valuation table — refreshed after broker sync. #}
     <div
       hx-get="/portfolio/holdings"
       hx-trigger="holdings-changed from:body"
       hx-swap="innerHTML">
       {% include "partials/holdings_table.html" %}
     </div>
-
-    {# Cash balance form #}
-    <form hx-post="/portfolio/cash"
-          hx-target="#holdings-table"
-          hx-swap="outerHTML"
-          hx-indicator="#holdings-spin"
-          class="mt-5">
-      <div class="flex flex-wrap items-end gap-3">
-        <div class="flex flex-col gap-1">
-          <label class="text-xs text-[var(--sea-ink-soft)]">Cash</label>
-          <input name="cash" type="number" min="0" step="0.01" inputmode="decimal"
-            value="{{ '%.2f' | format(valuation.cash) }}"
-            class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-        </div>
-        <button type="submit"
-          class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
-          Save Cash
-        </button>
-      </div>
-    </form>
-
-    {# Add position form #}
-    <div class="mt-5 flex flex-wrap items-end gap-5">
-      <form hx-post="/portfolio/holdings"
-            hx-target="#holdings-table"
-            hx-swap="outerHTML"
-            hx-indicator="#holdings-spin"
-            id="add-holding-form">
-        <div class="flex flex-wrap items-end gap-3">
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-[var(--sea-ink-soft)]">Symbol</label>
-            <input name="symbol" placeholder="AAPL" required
-              class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm uppercase" />
-          </div>
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-[var(--sea-ink-soft)]">Shares</label>
-            <input name="shares" placeholder="10" inputmode="decimal" required
-              class="w-28 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-          </div>
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-[var(--sea-ink-soft)]">Avg Cost (optional)</label>
-            <input name="avg_cost" placeholder="150.00" inputmode="decimal"
-              class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-          </div>
-          <button type="submit"
-            class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
-            Add / Update
-          </button>
-        </div>
-      </form>
-
-      <form hx-post="/portfolio/import"
-            hx-encoding="multipart/form-data"
-            hx-target="#holdings-table"
-            hx-swap="outerHTML"
-            hx-indicator="#holdings-spin">
-        <div class="flex flex-wrap items-end gap-3">
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-[var(--sea-ink-soft)]">Import CSV</label>
-            <input name="file" type="file" accept=".csv,text/csv" required
-              class="max-w-64 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-          </div>
-          <button type="submit"
-            class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
-            Upload
-          </button>
-        </div>
-      </form>
-    </div>
-    <p id="holdings-spin" class="htmx-indicator mt-3 text-sm text-[var(--sea-ink-soft)]">Fetching prices…</p>
   </section>
 
   {# ── B) Portfolio Health & Trade Decision Support ────────────────────────── #}
@@ -175,19 +105,10 @@
   {# ── F) Optimizer & rebalancing signals ──────────────────────────────────── #}
   <section>
     <h2 class="mb-1 text-lg font-semibold">Optimizer &amp; Rebalancing Signals</h2>
-    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Mean-variance allocation seeded from your current holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>
+    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Mean-variance allocation runs on your synced holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>
 
     <form hx-post="/portfolio/optimize" hx-target="#opt-results" hx-indicator="#opt-spin">
-      <div id="rows" class="space-y-2">
-        {% for r in optimizer_rows %}{% include "partials/portfolio_row.html" %}{% endfor %}
-        {% if not optimizer_rows %}
-        {% set r = none %}{% include "partials/portfolio_row.html" %}
-        {% endif %}
-      </div>
-
-      <div class="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" hx-get="/portfolio/holdings/row" hx-target="#rows" hx-swap="beforeend"
-          class="rounded-full border border-[var(--line)] px-3 py-1 text-xs">+ Add ticker</button>
+      <div class="flex flex-wrap items-center gap-3">
         <label class="flex items-center gap-2 text-xs text-[var(--sea-ink-soft)]">
           objective:
           <select name="objective" class="rounded-full border border-[var(--line)] bg-transparent px-2 py-1 text-xs">
@@ -211,7 +132,7 @@
   {# ── G) Transactions ─────────────────────────────────────────────────────── #}
   <section class="mt-10">
     <h2 class="mb-1 text-lg font-semibold">Transactions</h2>
-    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Optional journal entries apply to cash and holdings when saved.</p>
+    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Imported automatically from your broker.</p>
     <div
       class="mb-5 rounded-2xl border border-[var(--line)] p-5"
       hx-get="/portfolio/tax"

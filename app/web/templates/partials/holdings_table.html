@@ -1,21 +1,14 @@
 {# Renders the holdings table with live valuation.
    Context: valuation = PortfolioValuation (may have empty holdings list) #}
 <div id="holdings-table">
-  {% if import_summary %}
-  <div class="mb-3 rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-3 text-sm">
-    <p class="font-semibold">Imported {{ import_summary.imported }} holding{{ '' if import_summary.imported == 1 else 's' }}.</p>
-    {% if import_summary.skipped %}
-    <p class="mt-1 text-[var(--sea-ink-soft)]">Skipped {{ import_summary.skipped | length }} row{{ '' if import_summary.skipped | length == 1 else 's' }}:</p>
-    <ul class="mt-1 list-disc pl-5 text-[var(--sea-ink-soft)]">
-      {% for item in import_summary.skipped %}
-      <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-  </div>
-  {% endif %}
   {% if not valuation.holdings %}
-  <p class="py-4 text-sm text-[var(--sea-ink-soft)]">No holdings yet. Add a position below.</p>
+  <p class="py-4 text-sm text-[var(--sea-ink-soft)]">
+    {% if broker_sync_configured %}
+    No holdings yet — run a broker sync to populate them.
+    {% else %}
+    No holdings yet — configure SnapTrade credentials to sync them from your broker.
+    {% endif %}
+  </p>
   <div class="max-w-md overflow-x-auto">
     <table class="w-full text-sm">
       <tbody class="divide-y divide-[var(--line)]">
@@ -52,7 +45,6 @@
           <th class="pb-2 text-right font-medium">P&amp;L ($)</th>
           <th class="pb-2 text-right font-medium">P&amp;L (%)</th>
           <th class="pb-2 text-right font-medium">Weight</th>
-          <th class="pb-2"></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-[var(--line)]">
@@ -86,15 +78,6 @@
           <td class="py-3 pr-4 text-right tabular-nums text-[var(--sea-ink-soft)]">
             {% if h.weight is not none %}{{ h.weight | pct }}{% else %}—{% endif %}
           </td>
-          <td class="py-3 text-right">
-            <button
-              hx-post="/portfolio/holdings/remove/{{ h.symbol }}"
-              hx-target="#holdings-table"
-              hx-swap="outerHTML"
-              class="rounded-full border border-[var(--line)] px-2.5 py-0.5 text-xs opacity-0 group-hover:opacity-100 transition-opacity">
-              ×
-            </button>
-          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -109,22 +92,22 @@
           <td class="pt-3 text-right tabular-nums {% if tot_pos %}text-emerald-500{% else %}text-red-500{% endif %}">
             {{ '+' if tot_pos else '' }}{{ valuation.total_unrealized_pl_pct | pct }}
           </td>
-          <td colspan="2"></td>
+          <td></td>
         </tr>
         <tr class="font-semibold">
           <td class="pt-3" colspan="4">Cash</td>
           <td class="pt-3 text-right tabular-nums">${{ valuation.cash | fmt_num }}</td>
-          <td colspan="4"></td>
+          <td colspan="3"></td>
         </tr>
         <tr class="font-semibold">
           <td class="pt-3" colspan="4">Total (incl. cash)</td>
           <td class="pt-3 text-right tabular-nums">${{ valuation.total_with_cash | fmt_num }}</td>
-          <td colspan="4"></td>
+          <td colspan="3"></td>
         </tr>
         <tr class="font-semibold">
           <td class="pt-3" colspan="4">Dry powder</td>
           <td class="pt-3 text-right tabular-nums">{{ valuation.cash_pct | pct }}</td>
-          <td colspan="4"></td>
+          <td colspan="3"></td>
         </tr>
       </tfoot>
     </table>
