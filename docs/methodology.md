@@ -593,10 +593,15 @@ dedupe setting unchanged.
 > **This is not the account's realized return.** It replays *today's* live
 > weights, held constant, over the lookback window (730 days / ~2 years by
 > default) against a benchmark (SPY by default) using `quantstats_lumi`. It
-> answers "what would CAGR/Sharpe/Sortino/volatility/max-drawdown have been if
-> I'd held this exact allocation the whole time" — not what this account
+> answers "what would CAGR/Sharpe/Sortino/Calmar/volatility/max-drawdown have
+> been if I'd held this exact allocation the whole time" — not what this account
 > actually earned, since real holdings and weights changed over that period
 > and no transaction history feeds this calculation.
+
+The UI states the caveat explicitly: this replay uses today's weights over
+past prices, which is hindsight the portfolio never had; it ignores trading
+costs and taxes; and it only includes symbols that survived to today. Treat it
+as the risk profile of the current allocation, not a forecast.
 
 Requires ≥30 days of overlapping portfolio return history or it returns
 `None` (no metrics shown). When symbols are excluded for insufficient history,
@@ -660,6 +665,19 @@ symbol-set + lookback + trading day (namespace `correlation`, 24 h TTL).
 2 decimal places; the field defaults to `None` so older cached records parse
 until their 24-hour TTL expires.
 
+**Volatility regime** (`app/portfolio/decision_support.py::analyze_regime`,
+`compute_regime_signal`). The app fetches the current live weights over 400
+calendar days and builds the same constant-weight portfolio return series used
+by the allocation backtest. It requires at least 120 daily return rows. Recent
+volatility is the standard deviation of the last 21 trading-day returns
+annualized as `std * sqrt(252)`. Longer-term volatility is the standard
+deviation of the full fetched sample, annualized the same way. The regime ratio
+is `short_vol / long_vol`; if `long_vol == 0`, the signal is unavailable.
+`level` is `"elevated"` when the ratio is `>= 1.5`, `"calm"` when it is
+`<= 0.75`, and `"normal"` otherwise. Cached per sorted symbol/rounded-weight
+set + UTC date (namespace `regime`, 24 h TTL). This compares the current
+portfolio with its own history, not with the market.
+
 **Server-rendered chart helpers** (`app/web/charts.py`). All chart geometry and
 colors are deterministic Python; Jinja renders the returned SVG strings.
 
@@ -706,6 +724,10 @@ colors are deterministic Python; Jinja renders the returned SVG strings.
   critique of unconstrained Markowitz optimization; the per-asset cap bounds
   the size of any single mistake but does not address the underlying
   sensitivity to noisy return estimates.
+- **The volatility-regime signal is intentionally simple.** It compares two
+  realized-volatility windows on the current constant-weight portfolio and does
+  not model catalysts, implied volatility, macro regimes, or changing
+  portfolio weights.
 - **Cheap mode's critic is a same-model self-audit** — the same workhorse
   model that wrote the report also audits it, rather than an independent
   premium reviewer, which is a materially weaker check than thorough mode.

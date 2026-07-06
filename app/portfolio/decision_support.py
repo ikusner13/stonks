@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from itertools import combinations
 from math import isfinite
 
+import pandas as pd
 from pydantic import BaseModel, Field
 
 from ..profiles.base import Profile
@@ -41,6 +42,13 @@ HIGH_CORRELATION = 0.80
 # Correlation over a multi-year lookback is stable for a trading day; the cache
 # key already pins symbols + lookback + day, so a one-day TTL is plenty.
 CORRELATION_TTL_MS = 24 * 60 * 60_000
+
+SHORT_VOL_DAYS = 21
+LONG_VOL_MIN_DAYS = 120
+ELEVATED_VOL_RATIO = 1.5
+CALM_VOL_RATIO = 0.75
+REGIME_TTL_MS = 24 * 60 * 60_000
+REGIME_LOOKBACK_DAYS = 400  # calendar days fetched, yields ~252 trading rows
 
 
 # --- 1) Portfolio health ----------------------------------------------------
@@ -431,3 +439,102 @@ async def compute_correlation_insight(
     # so we never persist an empty insight and will retry it next time.
     value, _ = await with_cache("correlation", key, CORRELATION_TTL_MS, produce, fresh=fresh)
     return CorrelationInsight.model_validate(value) if value is not None else None
+
+
+# --- 5) Volatility regime ----------------------------------------------------
+#
+# This compares the portfolio's recent realized volatility with its own longer
+# history. It is not a market-volatility indicator.
+
+
+class RegimeSignal(BaseModel):
+    short_vol: float  # annualized fraction, last SHORT_VOL_DAYS trading days
+    long_vol: float  # annualized fraction, full sample
+    vol_ratio: float  # short / long
+    level: str  # "calm" | "normal" | "elevated"
+    note: str
+    sample_days: int
+    asof: str
+
+
+def analyze_regime(portfolio_returns: pd.Series) -> RegimeSignal | None:
+    """Pure + network-free volatility-regime summary for a portfolio return series."""
+    returns = portfolio_returns.dropna()
+    if len(returns) < LONG_VOL_MIN_DAYS:
+        return None
+
+    short_vol = float(returns.tail(SHORT_VOL_DAYS).std() * (252 ** 0.5))
+    long_vol = float(returns.std() * (252 ** 0.5))
+    if not isfinite(long_vol) or long_vol == 0:
+        return None
+    if not isfinite(short_vol):
+        return None
+
+    ratio = short_vol / long_vol
+    if ratio >= ELEVATED_VOL_RATIO:
+        level = "elevated"
+        note = (
+            f"Your portfolio's recent day-to-day swings are about {ratio:.1f}x "
+            f"its own longer-term norm — risk is running hotter than usual. A "
+            f"cautious time to add to positions; drops can be sharper in "
+            f"stretches like this. This compares the portfolio with its own "
+            f"history, not the market."
+        )
+    elif ratio <= CALM_VOL_RATIO:
+        level = "calm"
+        note = (
+            f"Your portfolio's recent day-to-day swings are about {ratio:.1f}x "
+            f"its own longer-term norm — calmer than usual. This compares the "
+            f"portfolio with its own history, not the market, so keep position "
+            f"risk in mind even when the tape feels quiet."
+        )
+    else:
+        level = "normal"
+        note = (
+            f"Your portfolio's recent day-to-day swings are about {ratio:.1f}x "
+            f"its own longer-term norm — roughly normal for this portfolio. "
+            f"This is a self-history check, not a market volatility forecast."
+        )
+
+    return RegimeSignal(
+        short_vol=short_vol,
+        long_vol=long_vol,
+        vol_ratio=ratio,
+        level=level,
+        note=note,
+        sample_days=len(returns),
+        asof=datetime.now(UTC).isoformat(),
+    )
+
+
+def _regime_sync(weights: dict[str, float]) -> RegimeSignal | None:
+    from .performance import _build_portfolio_returns
+
+    portfolio, _ = _build_portfolio_returns(weights, REGIME_LOOKBACK_DAYS)
+    if portfolio is None:
+        return None
+    return analyze_regime(portfolio)
+
+
+async def compute_regime_signal(
+    weights: dict[str, float], *, fresh: bool = False
+) -> RegimeSignal | None:
+    """Fetch portfolio returns and summarize recent volatility versus its own history."""
+    clean_weights = {
+        symbol.upper(): round(weight, 6)
+        for symbol, weight in weights.items()
+        if weight is not None and weight > 0
+    }
+    if not clean_weights:
+        return None
+
+    day = datetime.now(UTC).date().isoformat()
+    key_parts = [f"{symbol}:{clean_weights[symbol]:.6f}" for symbol in sorted(clean_weights)]
+    key = f"{'-'.join(key_parts)}:{day}"
+
+    async def produce() -> dict | None:
+        signal = await asyncio.to_thread(_regime_sync, clean_weights)
+        return signal.model_dump() if signal else None
+
+    value, _ = await with_cache("regime", key, REGIME_TTL_MS, produce, fresh=fresh)
+    return RegimeSignal.model_validate(value) if value is not None else None
