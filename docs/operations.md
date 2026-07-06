@@ -84,6 +84,14 @@ account ID shown in the sync error. Successful sync stores `last_broker_sync`
 in SQLite settings; failed SnapTrade fetches raise and do not advance the
 setting, so the scheduler retries on the next due tick.
 
+Personal-tier keys auto-provision their user at signup, so `registerUser` is
+unavailable (error 1012): set `SNAPTRADE_USER_ID` to the user listed by
+SnapTrade (usually the signup email) — `stocks broker connect` then only prints
+the portal URL. To backfill history beyond the default 90-day first-sync
+window, run `uv run stocks broker sync --since 2010-01-01` once; `external_id`
+dedupe makes overlapping imports safe to re-run. Money-weighted return is only
+meaningful once deposits back to account opening are imported.
+
 ## Portfolio CSV import
 
 The portfolio page accepts holdings CSV uploads up to 100 KB and 500 data rows.

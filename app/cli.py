@@ -226,12 +226,27 @@ def broker_connect() -> None:
 
 
 @broker_app.command("sync")
-def broker_sync(dry_run: bool = typer.Option(False, "--dry-run", help="Fetch and diff only.")) -> None:
+def broker_sync(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Fetch and diff only."),
+    since: str = typer.Option(
+        "", "--since", help="Backfill activities from this ISO date instead of the last sync."
+    ),
+) -> None:
     """Sync local holdings/cash from the configured SnapTrade account."""
+    from datetime import date as _date
+
     from .broker.sync import run_sync
 
+    since_date = None
+    if since:
+        try:
+            since_date = _date.fromisoformat(since)
+        except ValueError as exc:
+            typer.echo("--since must be an ISO date YYYY-MM-DD", err=True)
+            raise typer.Exit(1) from exc
+
     try:
-        result = asyncio.run(run_sync(dry_run=dry_run))
+        result = asyncio.run(run_sync(dry_run=dry_run, since=since_date))
     except Exception as exc:
         typer.echo(f"Broker sync failed: {exc}", err=True)
         raise typer.Exit(1) from exc
