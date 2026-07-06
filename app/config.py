@@ -24,6 +24,11 @@ SNAPTRADE_USER_ID = os.getenv("SNAPTRADE_USER_ID", "")
 SNAPTRADE_USER_SECRET = os.getenv("SNAPTRADE_USER_SECRET", "")
 SNAPTRADE_ACCOUNT_ID = os.getenv("SNAPTRADE_ACCOUNT_ID", "")
 SNAPTRADE_CONFIGURED = bool(SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY)
+# The scheduled job needs user credentials too; without them every tick would
+# fail noisily until `stocks broker connect` has been run.
+SNAPTRADE_SYNC_READY = bool(
+    SNAPTRADE_CONFIGURED and SNAPTRADE_USER_ID and SNAPTRADE_USER_SECRET
+)
 
 WORKHORSE_MODEL = os.getenv("WORKHORSE_MODEL", "google/gemini-3.1-flash-lite")
 PREMIUM_MODEL = os.getenv("PREMIUM_MODEL", "anthropic/claude-sonnet-5")

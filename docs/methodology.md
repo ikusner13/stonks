@@ -819,7 +819,7 @@ colors are deterministic Python; Jinja renders the returned SVG strings.
   text is `#ffffff` when `abs(rho) > 0.6`, otherwise `#173a40`, and the value
   is always printed in the cell so color is redundant.
 
-## 8. Known limitations
+## 9. Known limitations
 
 - **No outcome tracking.** Nothing in this codebase records what a report
   predicted against what actually happened later — there is no calibration

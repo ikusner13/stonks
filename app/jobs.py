@@ -249,7 +249,7 @@ async def scheduler_loop(jobs: list[Job], tick_seconds: int | None = None) -> No
 def build_jobs() -> list[Job]:
     """Build the registered background jobs for this process."""
     registry: list[Job] = []
-    if config.SNAPTRADE_CONFIGURED and config.DAILY_JOB_HOUR_UTC >= 0:
+    if config.SNAPTRADE_SYNC_READY and config.DAILY_JOB_HOUR_UTC >= 0:
         registry.append(
             Job(
                 name="broker_sync",
