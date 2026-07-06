@@ -281,6 +281,35 @@ first to last flow is less than 14 days. `compute_returns()` also returns MWR
 valuation has unpriced symbols, because the terminal portfolio value is not
 complete.
 
+**Tax-awareness flags.** `app/portfolio/tax.py::compute_tax_signals()` is a
+pure deterministic helper used by the portfolio page. It does no I/O and emits
+educational flags only, not tax advice. Because the app stores one average cost
+per holding instead of lot-level records, every tax signal is an approximation
+that should be checked against broker lot records before acting.
+
+Loss-harvest candidates require all of these inputs and thresholds:
+
+```
+unrealized_pl = (price - avg_cost) * shares
+unrealized_pct = (price - avg_cost) / avg_cost
+```
+
+A holding is listed only when `price` and `avg_cost` are present,
+`avg_cost > 0`, `unrealized_pl <= -100.0`, and
+`unrealized_pct <= -0.05`. Candidates are sorted by `unrealized_pl` ascending,
+so the largest dollar loss appears first. The harvest wash-sale risk badge is
+true when any buy transaction for that symbol has an ISO date
+`>= today - 30 days`; the 30-day lookback is inclusive, so a buy exactly 30 days
+ago still counts. Rows with unparseable transaction dates are skipped.
+
+Repurchase flags look backward through the ledger for already-recorded
+same-symbol wash-sale risk. For each sell with `realized_pl < 0`, the function
+finds the earliest same-symbol buy where
+`0 <= (buy_date - sell_date).days <= 30`. The 30-day repurchase window is
+inclusive on both same-day repurchases and buys exactly 30 days after the loss
+sale. Each loss sale emits at most one flag, and rows with unparseable dates are
+skipped.
+
 ## 5. LLM research pipeline
 
 **Grounding contract.** Every prompt in the pipeline states the same absolute
@@ -687,7 +716,9 @@ colors are deterministic Python; Jinja renders the returned SVG strings.
   loop scoring past confidence or theses against subsequent price action.
 - **No lot-level cost basis.** `upsert_holding` overwrites `shares`/`avg_cost`
   on conflict; adding to a position at a new price replaces the average
-  rather than tracking individual tax lots.
+  rather than tracking individual tax lots. Tax-awareness flags use that same
+  average cost basis, so wash-sale and harvest math can differ materially from
+  broker lot-level tax records.
 - **Sparse NAV history by design.** NAV snapshots are app-generated records,
   not broker-sourced transaction history. The daily job fills days without a
   portfolio page visit only while the app process is running, and a
