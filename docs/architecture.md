@@ -66,6 +66,14 @@ alerts. It imports `app.config`, `app.db`, and `app.portfolio`; it has no LLM
 dependency and never writes the drift-alert dedupe key when a webhook post
 fails.
 
+**`app/alerts.py`** — Deterministic Discord alerts for the user's held plus
+watchlisted symbols. It owns the `price_ranges` rolling 52-week range state and
+the shared `alerts_sent` idempotency ledger, refreshes ranges with
+`portfolio.history.fetch_price_history`, checks live Finnhub quotes for daily
+price moves and new highs/lows, and checks Finnhub's earnings calendar for
+upcoming earnings dates. It imports no LLM code; failed market-data sources are
+logged and skipped, and webhook failures do not mark alerts as sent.
+
 **`app/cache.py`** — The one dependency-light file-cache primitive
 (`read_cache`/`write_cache`/`with_cache`) every namespace in the caching table
 is built on.
@@ -243,6 +251,17 @@ the current actionable symbol set, the job skips regardless of date. Otherwise
 it posts `{"content": message}` to Discord with `httpx.AsyncClient(timeout=5)`.
 Webhook failures are logged and do not update the dedupe key.
 
+Price and earnings alerts are registered when both `ALERTS_ENABLED` and
+`DISCORD_WEBHOOK_URL` are set. `price_alerts` refreshes 52-week ranges from
+yfinance history, then checks Finnhub quotes for daily moves at or above
+`PRICE_MOVE_ALERT_PCT` and for new highs/lows against the stored range.
+`earnings_alerts` checks Finnhub's earnings calendar over
+`EARNINGS_ALERT_DAYS`. Both jobs send at most one Discord message per run,
+dedupe each deterministic alert in `alerts_sent`, and mark ledger rows only
+after a successful webhook post; missing API access, per-symbol fetch failures,
+and unavailable earnings calendar responses degrade to skipped alerts rather
+than a dead scheduler.
+
 ## Caching table
 
 All namespaces share `app/cache.py`'s file-based read-through cache: one JSON
@@ -280,6 +299,8 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
 | `targets` | `app/portfolio/plan.py` | User-owned target allocation rows keyed by symbol; weights are stored as fractions. |
 | `nav_snapshots` | `app/portfolio/snapshots.py` | One NAV row per UTC day from a portfolio page visit or daily job: securities value, cash, total NAV, cost, and unrealized P&L. |
 | `transactions` | `app/portfolio/transactions.py` | Optional applied ledger rows: date, side, symbol, shares, price, amount, realized P/L, note, and creation timestamp. |
+| `price_ranges` | `app/alerts.py` | Rolling 52-week high/low state per symbol, refreshed from price history and updated when live quotes break the stored range. |
+| `alerts_sent` | `app/alerts.py` | Shared idempotency ledger keyed by alert kind and deterministic dedupe key; webhook failures leave it unwritten for retry. |
 
 ## Error-handling conventions
 

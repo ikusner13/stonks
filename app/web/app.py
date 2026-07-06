@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db
+from ..alerts import init_alerts_db
 from ..config import OPENROUTER_API_KEY
 from ..jobs import build_jobs, scheduler_loop
 from ..llm.budget import BudgetExceededError
@@ -210,6 +211,7 @@ init_holdings_db()  # idempotent; ensures the holdings table exists before first
 init_snapshots_db()  # idempotent; ensures the NAV history table exists before first request
 init_targets_db()  # idempotent; ensures target allocations exist before first request
 init_transactions_db()  # idempotent; ensures the transaction ledger exists before first request
+init_alerts_db()  # idempotent; ensures alert ranges and delivery ledger exist before first request
 
 
 # --- Discover ---------------------------------------------------------------

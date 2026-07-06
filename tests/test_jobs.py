@@ -152,8 +152,21 @@ async def test_run_due_jobs_updates_successful_jobs_and_continues_after_failure(
 
 def test_build_jobs_empty_when_daily_hour_negative(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
+    monkeypatch.setattr(config, "ALERTS_ENABLED", False)
 
     assert jobs.build_jobs() == []
+
+
+def test_build_jobs_registers_alert_jobs_when_enabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
+    monkeypatch.setattr(config, "ALERTS_ENABLED", True)
+    monkeypatch.setattr(config, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
+    monkeypatch.setattr(config, "ALERTS_HOUR_UTC", 22)
+
+    registry = jobs.build_jobs()
+
+    assert [job.name for job in registry] == ["price_alerts", "earnings_alerts"]
+    assert [job.at_hour_utc for job in registry] == [22, 22]
 
 
 async def test_run_daily_jobs_records_snapshot_sends_dedupes_and_resends_changed(
