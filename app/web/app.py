@@ -71,6 +71,7 @@ from ..portfolio.transactions import (
     init_transactions_db,
     list_transactions,
 )
+from ..portfolio.twr import compute_twr_summary
 from ..schemas import Confidence
 from .charts import corr_color, donut, frontier_chart, nav_area
 
@@ -993,6 +994,20 @@ async def portfolio_performance(request: Request):
         return _error_partial(
             request, "Portfolio performance failed — see server logs.", "/portfolio/performance"
         )
+
+
+@app.get("/portfolio/twr", response_class=HTMLResponse)
+async def portfolio_twr(request: Request):
+    try:
+        summary = await compute_twr_summary()
+        return templates.TemplateResponse(
+            request,
+            "partials/portfolio_twr.html",
+            {"summary": summary},
+        )
+    except Exception:
+        logger.exception("portfolio twr failed")
+        return _error_partial(request, "Portfolio TWR failed — see server logs.", "/portfolio/twr")
 
 
 @app.get("/portfolio/tearsheet", response_class=HTMLResponse)
