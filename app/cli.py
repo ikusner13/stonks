@@ -210,6 +210,14 @@ def broker_connect() -> None:
         user_secret, portal_url = asyncio.run(run())
     except Exception as exc:
         typer.echo(f"SnapTrade connect failed: {exc}", err=True)
+        if "1012" in str(exc):
+            typer.echo(
+                "Personal SnapTrade keys auto-provision their user at signup, so "
+                "registerUser is unavailable. Set SNAPTRADE_USER_ID to the user shown "
+                "by listUsers (usually your signup email) and SNAPTRADE_USER_SECRET "
+                "from the SnapTrade dashboard, then rerun.",
+                err=True,
+            )
         raise typer.Exit(1) from exc
 
     if user_secret:
