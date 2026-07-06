@@ -7,10 +7,13 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 
 from . import config, db
+from .backup import run_backup
+from .portfolio.decision_support import compute_regime_signal
 from .portfolio.holdings import value_holdings
 from .portfolio.plan import ContributionPlan, RebalancePlan, list_targets, plan_contribution, plan_rebalance
 from .portfolio.snapshots import record_snapshot
@@ -18,6 +21,7 @@ from .portfolio.snapshots import record_snapshot
 logger = logging.getLogger(__name__)
 
 LAST_DRIFT_ALERT_KEY = "last_drift_alert"
+LAST_REGIME_LEVEL_KEY = "last_regime_level"
 LAST_RUN_PREFIX = "last_run:"
 
 
@@ -138,6 +142,55 @@ async def run_daily_jobs() -> dict:
         return {"snapshot": snapshot_recorded, "alert": ""}
 
 
+async def run_regime_alert() -> dict:
+    """Alert once on transition into 'elevated', and once on recovery out of it."""
+    valuation = await value_holdings()
+    weights = {h.symbol: h.weight for h in valuation.holdings if h.weight is not None}
+    if not weights:
+        return {"alert": ""}
+
+    signal = await compute_regime_signal(weights)
+    if signal is None:
+        return {"alert": ""}
+
+    stored = db.get_setting(LAST_REGIME_LEVEL_KEY)
+    message = ""
+    if stored != "elevated" and signal.level == "elevated":
+        message = (
+            "Volatility regime: ELEVATED — recent swings "
+            f"~{signal.vol_ratio:.1f}x this portfolio's norm "
+            f"({signal.short_vol:.0%} vs {signal.long_vol:.0%} annualized). "
+            "Cautious time to add risk."
+        )
+    elif stored == "elevated" and signal.level != "elevated":
+        message = f"Volatility regime back to {signal.level} ({signal.vol_ratio:.1f}x norm)."
+
+    if message:
+        try:
+            await post_discord(message)
+        except Exception:
+            logger.exception("regime alert Discord post failed")
+            return {"alert": ""}
+
+    db.set_setting(LAST_REGIME_LEVEL_KEY, signal.level)
+    return {"alert": message}
+
+
+async def run_db_backup() -> dict:
+    """Run the SQLite backup job in a worker thread."""
+    if config.BACKUP_DIR is None:
+        return {"backup": ""}
+    today = datetime.now(UTC).date().isoformat()
+    path = await asyncio.to_thread(
+        run_backup,
+        config.DB_PATH,
+        Path(config.BACKUP_DIR),
+        config.BACKUP_KEEP,
+        today,
+    )
+    return {"backup": str(path)}
+
+
 def _last_run_key(job: Job) -> str:
     return f"{LAST_RUN_PREFIX}{job.name}"
 
@@ -213,6 +266,14 @@ def build_jobs() -> list[Job]:
                 ),
             ]
         )
+    if config.REGIME_ALERT_ENABLED and config.DISCORD_WEBHOOK_URL:
+        registry.append(
+            Job(
+                name="regime_alert",
+                run=run_regime_alert,
+                at_hour_utc=config.ALERTS_HOUR_UTC,
+            )
+        )
     if config.SEC_ALERTS_ENABLED and config.DISCORD_WEBHOOK_URL:
         from .alerts import run_sec_filing_alerts
 
@@ -221,6 +282,14 @@ def build_jobs() -> list[Job]:
                 name="sec_filing_alerts",
                 run=run_sec_filing_alerts,
                 cadence=timedelta(hours=config.SEC_ALERT_HOURS),
+            )
+        )
+    if config.BACKUP_DIR and config.DAILY_JOB_HOUR_UTC >= 0:
+        registry.append(
+            Job(
+                name="db_backup",
+                run=run_db_backup,
+                at_hour_utc=config.DAILY_JOB_HOUR_UTC,
             )
         )
     return registry

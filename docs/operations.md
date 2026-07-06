@@ -6,9 +6,12 @@
 | --- | --- | --- | --- |
 | `OPENROUTER_API_KEY` | **Required** for research/discover | Auth for every LLM call (research, critic, discovery) via OpenRouter. | The web app starts anyway (`LLM_CONFIGURED=False` logs a startup warning and is passed to templates to show a disabled state). The first LLM call raises `RuntimeError("OPENROUTER_API_KEY is not set...")` lazily — web routes catch it as a generic exception and show an error partial; the CLI has no such guard and will print the raw traceback. |
 | `DAILY_LLM_BUDGET_USD` | Optional (default `5`; `0` disables) | Stops new paid LLM runs once today's UTC `usage.jsonl` spend is at or above this amount. | Cached research reports still load because the guard only runs inside cache misses. Uncached research and discovery show a budget error in the web app; CLI commands raise the same guard exception. |
-| `DISCORD_WEBHOOK_URL` | Optional (default empty) | Enables Discord drift-alert posts from the daily portfolio job when `DRIFT_ALERT_ENABLED=1`. | Empty means alerts are disabled; snapshots still run. |
+| `DISCORD_WEBHOOK_URL` | Optional (default empty) | Enables Discord alert posts when their feature flags are enabled. | Empty means Discord alerts are disabled; snapshots and backups still run. |
 | `DAILY_JOB_HOUR_UTC` | Optional (default `21`) | UTC hour for the in-process daily portfolio job; `21` runs after the regular US market close. Set `<0` to disable the loop, primarily for tests. | Uses the default hour. If disabled, no automatic snapshot or alert runs until the app is restarted with a non-negative hour. |
 | `DRIFT_ALERT_ENABLED` | Optional (default `1`) | Master switch for daily Discord rebalance drift alerts. | Set `0` to suppress alerts while still allowing the daily snapshot job to run. |
+| `REGIME_ALERT_ENABLED` | Optional (default `1`) | Master switch for Discord volatility-regime transition alerts. | Set `0` to suppress regime transition alerts. Requires `DISCORD_WEBHOOK_URL` when enabled. |
+| `BACKUP_DIR` | Optional (default unset) | Directory for daily SQLite backups written by the in-process scheduler. | Unset disables automatic backups. |
+| `BACKUP_KEEP` | Optional (default `14`) | Number of dated `stocks-*.db` backups to retain when `BACKUP_DIR` is set. | Uses the default retention. |
 | `FINNHUB_API_KEY` | Optional | Preferred quote/news source over Yahoo when set. | Finnhub calls are skipped entirely (not attempted, not marked `error` — they simply produce no `sources` entry). Quote/news fall back to Yahoo. |
 | `FRED_API_KEY` | Optional | Enables macro context (fed funds, CPI YoY, 10y treasury, unemployment, GDP growth). | `sources.macro = "disabled"`; `TickerData.macro` stays `None`; the report has no macro section rather than an empty one. |
 | `SEC_IDENTITY` | Optional | Contact email SEC EDGAR requires for XBRL financials. | Falls back to a hardcoded address in `app/data/sec.py`; financials still fetch normally — set your own for anything beyond local use. |
@@ -106,9 +109,23 @@ daily checks skip while the actionable set is unchanged; a new symbol entering
 or leaving that set sends a new alert. Webhook post failures are logged and do
 not update the dedupe key.
 
+Volatility-regime alerts run at `ALERTS_HOUR_UTC` when
+`REGIME_ALERT_ENABLED=1` and `DISCORD_WEBHOOK_URL` is non-empty. They post only
+on transitions into `elevated` or recoveries out of it, and store the last
+successful regime level so calm/normal moves do not leave stale state behind.
+Webhook post failures are logged and do not update the stored regime level.
+
 To configure Discord, create an incoming webhook for the target channel and
 copy its URL into `.env` as `DISCORD_WEBHOOK_URL`. Discord's UI walkthrough is:
 <https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks>.
+
+## SQLite backups
+
+Set `BACKUP_DIR` to enable a daily online SQLite backup at `DAILY_JOB_HOUR_UTC`.
+The job writes `stocks-YYYY-MM-DD.db` with SQLite's backup API, overwrites the
+same-day file on rerun, and retains the newest `BACKUP_KEEP` files. Backup job
+failures raise normally, so the scheduler does not advance the last-run ledger
+and retries on the next tick.
 
 ## Portfolio visuals
 

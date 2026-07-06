@@ -87,8 +87,30 @@ rebuilds and container replacement never touch holdings/watchlist/reports.
 
 ## 5. Backups
 
-Everything worth keeping is one SQLite file plus rebuildable caches. A nightly
-dump of the DB is enough:
+Everything worth keeping is one SQLite file plus rebuildable caches. Set
+`BACKUP_DIR` to a persisted volume path so the app writes daily
+`stocks-YYYY-MM-DD.db` backups itself:
+
+```env
+BACKUP_DIR=/data/backups
+BACKUP_KEEP=30
+```
+
+The app deliberately does not upload backups anywhere. Sync that directory
+off-box with your tool of choice, for example:
+
+```bash
+0 3 * * * rclone sync /var/lib/docker/volumes/stocks-data/_data/backups remote:stocks-backups
+```
+
+or:
+
+```bash
+0 3 * * * rsync -az /var/lib/docker/volumes/stocks-data/_data/backups/ user@backup-host:/srv/stocks-backups/
+```
+
+For older deployments without `BACKUP_DIR`, a host cron can still create a
+one-off online SQLite backup:
 
 ```bash
 cat >/etc/cron.daily/stocks-backup <<'EOF'
