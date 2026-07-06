@@ -51,6 +51,13 @@ correlation fetches its own return history and reuses `performance.py`'s
 `_fetch_returns` via a local import inside the function body to avoid a
 module-level cycle. Imports `app.config`, `app.data`, `app.schemas`.
 
+**`app/broker/`** — Optional read-only broker sync through SnapTrade.
+`snaptrade.py` is the only module that imports the generated SDK and adapts
+account-level positions, balances, and activities into local Pydantic models.
+`reconcile.py` is pure deterministic diffing/mapping code. `sync.py`
+orchestrates fetch, ledger-only activity import, holdings/cash mirror, and the
+`last_broker_sync` setting; failures raise so the scheduler retries later.
+
 **`app/web/`** — The FastAPI app (`app.py`), Jinja2 templates, static assets,
 and pure SVG/color helpers in `charts.py`. Owns no domain logic — every route
 is a thin composition of calls into `data`/`llm`/`indicators`/`portfolio`, plus
@@ -60,10 +67,11 @@ else in `app/`.
 
 **`app/jobs.py`** — The in-process background job registry and tick scheduler
 started from the FastAPI lifespan. It stores per-job `last_run:*` ledger values
-in SQLite `settings`, runs a startup catch-up tick, records a NAV snapshot from
-`value_holdings()`, and optionally sends deterministic Discord rebalance drift
-alerts. It imports `app.config`, `app.db`, and `app.portfolio`; it has no LLM
-dependency and never writes the drift-alert dedupe key when a webhook post
+in SQLite `settings`, runs a startup catch-up tick, optionally runs the
+SnapTrade broker sync before the daily portfolio job, records a NAV snapshot
+from `value_holdings()`, and optionally sends deterministic Discord rebalance
+drift alerts. It imports `app.config`, `app.db`, and `app.portfolio`; it has no
+LLM dependency and never writes the drift-alert dedupe key when a webhook post
 fails.
 
 **`app/alerts.py`** — Deterministic Discord alerts for the user's held plus
@@ -312,7 +320,7 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
 | `holdings` | `app/portfolio/holdings.py` | Current position rows keyed by symbol: shares and optional average cost. |
 | `targets` | `app/portfolio/plan.py` | User-owned target allocation rows keyed by symbol; weights are stored as fractions. |
 | `nav_snapshots` | `app/portfolio/snapshots.py` | One NAV row per UTC day from a portfolio page visit or daily job: securities value, cash, total NAV, cost, and unrealized P&L. |
-| `transactions` | `app/portfolio/transactions.py` | Optional applied ledger rows: date, side, symbol, shares, price, amount, realized P/L, note, and creation timestamp. |
+| `transactions` | `app/portfolio/transactions.py` | Optional ledger rows: date, side, symbol, shares, price, amount, realized P/L, note, optional broker `external_id`, and creation timestamp. Broker-imported rows are ledger-only and deduped by `external_id`. |
 | `price_ranges` | `app/alerts.py` | Rolling 52-week high/low state per symbol, refreshed from price history and updated when live quotes break the stored range. |
 | `alerts_sent` | `app/alerts.py` | Shared idempotency ledger keyed by alert kind and deterministic `dedupe_key`; SEC filing alerts use accession numbers as globally unique keys, and webhook failures leave the ledger unwritten for retry. |
 

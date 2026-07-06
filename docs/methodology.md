@@ -51,6 +51,14 @@ in this codebase, and they behave differently:
 This status surfaces directly in the UI as chips (ok/empty/error/disabled) next
 to each source, and feeds the confidence caps described in §6.
 
+**Portfolio broker authority.** When SnapTrade is configured, the selected
+broker account is the authoritative source for current holdings and cash.
+Manual holdings/cash entry remains the fallback when SnapTrade is unconfigured.
+Broker activities are imported into the transaction ledger for audit/history,
+but they do not apply cash or holdings effects themselves; the subsequent
+broker snapshot mirror sets holdings and cash to the account state that already
+reflects those activities.
+
 ## 2. Indicator engine
 
 `app/indicators/engine.py::compute_indicators` computes the active profile's
@@ -211,6 +219,13 @@ The transaction ledger is an optional journal that applies changes to the
 authoritative `holdings` table and recorded cash setting. It is not a replay
 source: deleting a transaction deletes only that ledger row and does not reverse
 cash or holdings effects.
+
+Broker-imported rows are ledger-only and carry `external_id` for dedupe. They
+do not mutate holdings or cash on insert because broker sync mirrors holdings
+and cash from the broker snapshot after activity import. Imported sells store
+`realized_pl = None`: the activity row has execution price and shares, but the
+local average-cost basis at the historical import time is unknowable, so code
+does not invent a realized P/L number.
 
 Allowed sides are `buy`, `sell`, `deposit`, `withdraw`, and `dividend`. Dates
 must be ISO calendar dates (`YYYY-MM-DD`) and cannot be in the future relative

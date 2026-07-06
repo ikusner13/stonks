@@ -27,6 +27,7 @@ dependencies = [
     "quantstats-lumi>=1.1.5",
     "fredapi>=0.5.2",
     "wbgapi>=1.0.14",
+    "snaptrade-python-sdk>=11.0.212",
 ]
 
 [project.scripts]
