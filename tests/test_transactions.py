@@ -153,6 +153,42 @@ def test_apply_deposit_withdraw_future_and_non_positive_values():
         apply_transaction(_txn("2026-01-04", "buy", symbol="AAPL", shares=1, price=0))
 
 
+def test_apply_dividend_with_symbol_increases_cash_without_touching_holdings():
+    upsert_holding("AAPL", 3, 100)
+    db.set_cash(25)
+
+    saved = apply_transaction(_txn("2026-01-05", "dividend", symbol="aapl", amount=12.345))
+
+    assert saved.side == "dividend"
+    assert saved.symbol == "AAPL"
+    assert saved.shares is None
+    assert saved.price is None
+    assert saved.realized_pl is None
+    assert saved.amount == 12.35
+    assert db.get_cash() == 37.35
+    assert list_holdings() == [Holding(symbol="AAPL", shares=3, avg_cost=100)]
+    assert list_transactions()[0].side == "dividend"
+
+
+def test_apply_dividend_without_symbol_and_normalizes_shares_price():
+    saved = apply_transaction(
+        _txn("2026-01-05", "dividend", shares=99, price=10, amount=3.21)
+    )
+
+    assert saved.symbol is None
+    assert saved.shares is None
+    assert saved.price is None
+    assert db.get_cash() == 3.21
+
+
+def test_apply_dividend_non_positive_amount_rejected():
+    with pytest.raises(ValueError, match="amount must be > 0"):
+        apply_transaction(_txn("2026-01-05", "dividend", amount=0))
+
+    with pytest.raises(ValueError, match="amount must be > 0"):
+        apply_transaction(_txn("2026-01-05", "dividend", amount=-1))
+
+
 def test_xirr_known_fixture_and_guards():
     assert xirr([("2025-01-01", -10_000), ("2026-01-01", 11_000)]) == pytest.approx(
         0.10, abs=1e-4
@@ -197,6 +233,20 @@ def test_compute_returns_excludes_internal_trades_and_rolls_realized_by_year():
     assert summary.first_flow_date == "2025-01-01"
     assert summary.flow_count == 2
     assert summary.mwr_annualized is not None
+
+
+def test_compute_returns_rolls_dividends_without_external_flow():
+    apply_transaction(_txn("2025-01-01", "deposit", amount=10_000))
+    apply_transaction(_txn("2025-02-01", "dividend", symbol="AAPL", amount=12.34))
+    apply_transaction(_txn("2026-03-01", "dividend", amount=7.66))
+
+    summary = compute_returns(_valuation(total_with_cash=10_000))
+    without_dividends = xirr([("2025-01-01", -10_000), (datetime.now(UTC).date().isoformat(), 10_000)])
+
+    assert summary.dividends_total == 20
+    assert summary.dividends_by_year == {"2025": 12.34, "2026": 7.66}
+    assert summary.flow_count == 1
+    assert summary.mwr_annualized == without_dividends
 
 
 def test_compute_returns_unpriced_portfolio_has_no_mwr():
