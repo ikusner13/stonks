@@ -36,6 +36,10 @@ SEC_ALERT_FORMS = {
     for s in os.getenv("SEC_ALERT_FORMS", "8-K,10-Q,10-K").split(",")
     if s.strip()
 }
+ALERTS_ENABLED = os.getenv("ALERTS_ENABLED", "1") == "1"
+ALERTS_HOUR_UTC = int(os.getenv("ALERTS_HOUR_UTC", "21"))
+PRICE_MOVE_ALERT_PCT = float(os.getenv("PRICE_MOVE_ALERT_PCT", "5"))
+EARNINGS_ALERT_DAYS = int(os.getenv("EARNINGS_ALERT_DAYS", "7"))
 
 # SQLite store for the server-side watchlist / positions.
 DB_PATH = Path(os.getenv("STOCKS_DB_PATH", ROOT / "stocks.db"))

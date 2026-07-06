@@ -11,13 +11,14 @@ from enum import Enum
 
 import typer
 
+from . import db
+from .alerts import init_alerts_db
+from .jobs import LAST_RUN_PREFIX, Job, build_jobs
 from .llm.critic import ReviewMode
 from .llm.discovery import discover_ideas
 from .llm.pipeline import research_ticker_cached
 from .llm.usage import format_event, format_rollup, with_run
 from .schemas import Critique, DiscoveryResult, ResearchResult, TickerData, TickerReport
-from . import db
-from .jobs import LAST_RUN_PREFIX, Job, build_jobs
 
 app = typer.Typer(add_completion=False, help="LLM-driven equity research assistant.")
 
@@ -173,6 +174,7 @@ def usage() -> None:
 def jobs_list() -> None:
     """List registered background jobs and their last-run ledger values."""
     db.init_db()
+    init_alerts_db()
     for job in build_jobs():
         typer.echo(f"{job.name}\t{_fmt_timedelta(job)}\tlast_run={_job_last_run(job)}")
 
@@ -181,6 +183,7 @@ def jobs_list() -> None:
 def jobs_run(name: str) -> None:
     """Run one registered background job immediately without advancing its schedule."""
     db.init_db()
+    init_alerts_db()
     for job in build_jobs():
         if job.name == name:
             asyncio.run(job.run())

@@ -18,6 +18,7 @@ def _tmp_db_and_cache(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setattr(config, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
     db.init_db()
     init_holdings_db()
+    alerts.init_alerts_db()
 
 
 async def test_fetch_company_filings_filters_stops_and_builds_urls(monkeypatch):
@@ -145,7 +146,16 @@ async def test_run_sec_filing_alerts_dedupes_across_runs(monkeypatch):
         ]
 
     async def fake_ownership(symbol, cik, since):
-        return []
+        return [
+            sec_filings.NewFiling(
+                symbol=symbol,
+                cik=cik,
+                form="SC 13G",
+                filing_date="2026-07-03",
+                accession="0000320193-26-000001",
+                url="https://sec.test/aapl-duplicate",
+            )
+        ]
 
     async def fake_post(message):
         posts.append(message)
@@ -153,7 +163,7 @@ async def test_run_sec_filing_alerts_dedupes_across_runs(monkeypatch):
     monkeypatch.setattr(alerts, "ticker_cik_map", fake_cik_map)
     monkeypatch.setattr(alerts, "fetch_company_filings", fake_company)
     monkeypatch.setattr(alerts, "fetch_ownership_filings", fake_ownership)
-    monkeypatch.setattr("app.jobs.post_discord", fake_post)
+    monkeypatch.setattr(alerts, "post_discord", fake_post)
 
     assert await alerts.run_sec_filing_alerts() == {"alerts": 1}
     assert posts == ["SEC 8-K AAPL filed 2026-07-03 https://sec.test/aapl"]
@@ -194,7 +204,7 @@ async def test_run_sec_filing_alerts_skips_failed_symbol_and_keeps_others(monkey
     monkeypatch.setattr(alerts, "ticker_cik_map", fake_cik_map)
     monkeypatch.setattr(alerts, "fetch_company_filings", fake_company)
     monkeypatch.setattr(alerts, "fetch_ownership_filings", fake_ownership)
-    monkeypatch.setattr("app.jobs.post_discord", fake_post)
+    monkeypatch.setattr(alerts, "post_discord", fake_post)
 
     assert await alerts.run_sec_filing_alerts() == {"alerts": 1}
     assert posts == ["SEC 10-Q MSFT filed 2026-07-04 https://sec.test/msft"]
@@ -227,7 +237,7 @@ async def test_run_sec_filing_alerts_webhook_failure_marks_nothing(monkeypatch):
     monkeypatch.setattr(alerts, "ticker_cik_map", fake_cik_map)
     monkeypatch.setattr(alerts, "fetch_company_filings", fake_company)
     monkeypatch.setattr(alerts, "fetch_ownership_filings", fake_ownership)
-    monkeypatch.setattr("app.jobs.post_discord", fake_post)
+    monkeypatch.setattr(alerts, "post_discord", fake_post)
 
     assert await alerts.run_sec_filing_alerts() == {"alerts": 0}
     assert not alerts.already_sent("sec_filing", "0000320193-26-000002")
@@ -245,7 +255,7 @@ async def test_run_sec_filing_alerts_cik_map_failure_returns_early(monkeypatch):
         posted = True
 
     monkeypatch.setattr(alerts, "ticker_cik_map", fake_cik_map)
-    monkeypatch.setattr("app.jobs.post_discord", fake_post)
+    monkeypatch.setattr(alerts, "post_discord", fake_post)
 
     assert await alerts.run_sec_filing_alerts() == {"alerts": 0}
     assert posted is False

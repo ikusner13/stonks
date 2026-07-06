@@ -13,6 +13,7 @@ def _tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "stocks.db")
     monkeypatch.setattr(config, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
     monkeypatch.setattr(config, "DRIFT_ALERT_ENABLED", True)
+    monkeypatch.setattr(config, "ALERTS_ENABLED", False)
     monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", False)
     db.init_db()
     init_targets_db()
@@ -153,12 +154,14 @@ async def test_run_due_jobs_updates_successful_jobs_and_continues_after_failure(
 
 def test_build_jobs_empty_when_daily_hour_negative(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
+    monkeypatch.setattr(config, "ALERTS_ENABLED", False)
 
     assert jobs.build_jobs() == []
 
 
 def test_build_jobs_registers_sec_alerts_when_enabled(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
+    monkeypatch.setattr(config, "ALERTS_ENABLED", False)
     monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", True)
     monkeypatch.setattr(config, "SEC_ALERT_HOURS", 4)
 
@@ -167,6 +170,38 @@ def test_build_jobs_registers_sec_alerts_when_enabled(monkeypatch: pytest.Monkey
     assert len(registry) == 1
     assert registry[0].name == "sec_filing_alerts"
     assert registry[0].cadence == timedelta(hours=4)
+
+
+def test_build_jobs_registers_alert_jobs_when_enabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
+    monkeypatch.setattr(config, "ALERTS_ENABLED", True)
+    monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", False)
+    monkeypatch.setattr(config, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
+    monkeypatch.setattr(config, "ALERTS_HOUR_UTC", 22)
+
+    registry = jobs.build_jobs()
+
+    assert [job.name for job in registry] == ["price_alerts", "earnings_alerts"]
+    assert [job.at_hour_utc for job in registry] == [22, 22]
+
+
+def test_build_jobs_can_register_phase2_and_sec_alerts(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
+    monkeypatch.setattr(config, "ALERTS_ENABLED", True)
+    monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", True)
+    monkeypatch.setattr(config, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
+    monkeypatch.setattr(config, "ALERTS_HOUR_UTC", 22)
+    monkeypatch.setattr(config, "SEC_ALERT_HOURS", 4)
+
+    registry = jobs.build_jobs()
+
+    assert [job.name for job in registry] == [
+        "price_alerts",
+        "earnings_alerts",
+        "sec_filing_alerts",
+    ]
+    assert [job.at_hour_utc for job in registry] == [22, 22, None]
+    assert registry[2].cadence == timedelta(hours=4)
 
 
 async def test_run_daily_jobs_records_snapshot_sends_dedupes_and_resends_changed(
