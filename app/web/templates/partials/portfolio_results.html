@@ -55,9 +55,9 @@
     <h2 class="mb-1 text-sm font-semibold">Allocation drift &amp; rebalancing signals</h2>
     <p class="mb-3 text-xs text-[var(--sea-ink-soft)]">
       {% if drift.significant_count %}
-        {{ drift.significant_count }} position{{ 's' if drift.significant_count != 1 }} drifted more than {{ drift.threshold_pct | pct }} from the suggested target.
+        {{ drift.significant_count }} position{{ 's' if drift.significant_count != 1 }} crossed the {{ drift.threshold_pct | pct }} absolute / {{ drift.relative_threshold_pct | pct }} relative drift band.
       {% else %}
-        Every position is within {{ drift.threshold_pct | pct }} of its suggested target — no meaningful drift right now.
+        Every position is within the {{ drift.threshold_pct | pct }} absolute / {{ drift.relative_threshold_pct | pct }} relative drift band — no meaningful drift right now.
       {% endif %}
     </p>
     <ul class="space-y-2">

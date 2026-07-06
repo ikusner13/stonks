@@ -7,7 +7,7 @@ from math import isfinite
 from pydantic import BaseModel, Field, field_validator
 
 from ..db import connect
-from .decision_support import DRIFT_THRESHOLD
+from .decision_support import DRIFT_THRESHOLD, RELATIVE_DRIFT_THRESHOLD, drift_is_significant
 from .holdings import PortfolioValuation
 
 
@@ -44,6 +44,7 @@ class RebalancePlan(BaseModel):
     items: list[RebalanceItem]
     untargeted: list[str]
     threshold: float = Field(default=DRIFT_THRESHOLD)
+    relative_threshold: float = Field(default=RELATIVE_DRIFT_THRESHOLD)
 
 
 class ContributionItem(BaseModel):
@@ -152,7 +153,7 @@ def plan_rebalance(
         current_weight = market_value / base_value
         drift = current_weight - target_weight
 
-        if abs(drift) <= DRIFT_THRESHOLD + 1e-12:
+        if not drift_is_significant(drift, target_weight):
             action = "hold"
             delta_usd = 0.0
         else:

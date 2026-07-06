@@ -5,7 +5,7 @@ import pytest
 from app import config, db
 from app import jobs
 from app.portfolio.holdings import HoldingValuation, PortfolioValuation
-from app.portfolio.plan import Target, init_targets_db, set_targets
+from app.portfolio.plan import ContributionPlan, Target, init_targets_db, set_targets
 
 
 @pytest.fixture(autouse=True)
@@ -47,6 +47,24 @@ def _valuation() -> PortfolioValuation:
         cash=0,
         total_with_cash=10_000,
         cash_pct=0,
+    )
+
+
+def _valuation_with_cash() -> PortfolioValuation:
+    return PortfolioValuation(
+        holdings=[
+            _holding("AAA", 2700),
+            _holding("BBB", 7000),
+            _holding("CCC", 300),
+        ],
+        total_value=10_000,
+        total_cost=0,
+        total_unrealized_pl=0,
+        total_unrealized_pl_pct=0,
+        asof="2026-07-05T00:00:00+00:00",
+        cash=1_000,
+        total_with_cash=11_000,
+        cash_pct=1_000 / 11_000,
     )
 
 
@@ -249,6 +267,95 @@ async def test_run_daily_jobs_records_snapshot_sends_dedupes_and_resends_changed
     assert "CCC" in changed["alert"]
     assert len(posts) == 2
     assert db.get_setting(jobs.LAST_DRIFT_ALERT_KEY).endswith(":AAA,CCC")
+
+
+async def test_run_daily_jobs_alert_includes_cash_first_when_contribution_has_items(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    posts: list[dict] = []
+
+    async def value_holdings() -> PortfolioValuation:
+        return _valuation_with_cash()
+
+    monkeypatch.setattr(jobs, "value_holdings", value_holdings)
+    monkeypatch.setattr(jobs, "record_snapshot", lambda valuation: True)
+    _install_http_recorder(monkeypatch, posts)
+    set_targets([
+        Target(symbol="AAA", target_weight=0.20),
+        Target(symbol="BBB", target_weight=0.70),
+        Target(symbol="CCC", target_weight=0.10),
+    ])
+
+    result = await jobs.run_daily_jobs()
+
+    assert "Cash first: $1,000 cash on hand covers" in result["alert"]
+    assert "CCC" in result["alert"]
+    assert posts[0]["json"] == {"content": result["alert"]}
+
+
+def test_alert_message_omits_cash_first_when_contribution_is_none_or_empty():
+    valuation = _valuation()
+    plan = jobs.plan_rebalance(
+        valuation,
+        [Target(symbol="AAA", target_weight=0.20), Target(symbol="BBB", target_weight=0.80)],
+    )
+    assert plan is not None
+
+    assert "Cash first" not in jobs._alert_message(plan)
+
+    empty = ContributionPlan(
+        contribution=100,
+        base_after=10_100,
+        leftover_cash=100,
+        items=[],
+    )
+    assert "Cash first" not in jobs._alert_message(plan, empty)
+
+
+async def test_run_daily_jobs_alert_omits_cash_first_when_cash_is_zero(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    posts: list[dict] = []
+
+    async def value_holdings() -> PortfolioValuation:
+        return _valuation()
+
+    monkeypatch.setattr(jobs, "value_holdings", value_holdings)
+    monkeypatch.setattr(jobs, "record_snapshot", lambda valuation: True)
+    _install_http_recorder(monkeypatch, posts)
+    set_targets([Target(symbol="AAA", target_weight=0.20), Target(symbol="BBB", target_weight=0.80)])
+
+    result = await jobs.run_daily_jobs()
+
+    assert "Cash first" not in result["alert"]
+
+
+async def test_run_daily_jobs_sends_alert_when_contribution_planning_fails(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    posts: list[dict] = []
+
+    async def value_holdings() -> PortfolioValuation:
+        return _valuation_with_cash()
+
+    def plan_contribution(*args, **kwargs):
+        raise RuntimeError("contribution unavailable")
+
+    monkeypatch.setattr(jobs, "value_holdings", value_holdings)
+    monkeypatch.setattr(jobs, "record_snapshot", lambda valuation: True)
+    monkeypatch.setattr(jobs, "plan_contribution", plan_contribution)
+    _install_http_recorder(monkeypatch, posts)
+    set_targets([
+        Target(symbol="AAA", target_weight=0.20),
+        Target(symbol="BBB", target_weight=0.70),
+        Target(symbol="CCC", target_weight=0.10),
+    ])
+
+    result = await jobs.run_daily_jobs()
+
+    assert "Rebalance drift:" in result["alert"]
+    assert "Cash first" not in result["alert"]
+    assert len(posts) == 1
 
 
 async def test_run_daily_jobs_skips_alert_when_webhook_unset(monkeypatch: pytest.MonkeyPatch):

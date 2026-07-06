@@ -12,7 +12,7 @@ import httpx
 
 from . import config, db
 from .portfolio.holdings import value_holdings
-from .portfolio.plan import RebalancePlan, list_targets, plan_rebalance
+from .portfolio.plan import ContributionPlan, RebalancePlan, list_targets, plan_contribution, plan_rebalance
 from .portfolio.snapshots import record_snapshot
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def _money(value: float) -> str:
     return f"${rounded:,.2f}"
 
 
-def _alert_message(plan: RebalancePlan) -> str:
+def _alert_message(plan: RebalancePlan, contribution: ContributionPlan | None = None) -> str:
     lines = []
     for item in plan.items:
         if item.action == "hold":
@@ -76,6 +76,16 @@ def _alert_message(plan: RebalancePlan) -> str:
             f"{_money(item.delta_usd)} (~{shares} sh)"
         )
     lines.append(f"cash after: {_money(plan.cash_after)}")
+    if contribution is not None and contribution.items:
+        shown = contribution.items[:5]
+        buys = ", ".join(f"{item.symbol} {_money(item.buy_usd)}" for item in shown)
+        remaining = len(contribution.items) - len(shown)
+        if remaining > 0:
+            buys = f"{buys}, +{remaining} more"
+        lines.append(
+            f"Cash first: {_money(contribution.contribution)} cash on hand covers "
+            f"{buys} before any selling."
+        )
     return "\n".join(lines)
 
 
@@ -99,7 +109,8 @@ async def run_daily_jobs() -> dict:
         if not config.DRIFT_ALERT_ENABLED or not config.DISCORD_WEBHOOK_URL:
             return {"snapshot": snapshot_recorded, "alert": ""}
 
-        plan = plan_rebalance(valuation, list_targets())
+        targets = list_targets()
+        plan = plan_rebalance(valuation, targets)
         actionable = [item for item in plan.items if item.action != "hold"] if plan else []
         if not actionable:
             return {"snapshot": snapshot_recorded, "alert": ""}
@@ -111,7 +122,13 @@ async def run_daily_jobs() -> dict:
 
         today = datetime.now(UTC).date().isoformat()
         dedupe_value = f"{today}:{','.join(sorted(current_symbols))}"
-        message = _alert_message(plan)
+        contribution = None
+        if valuation.cash > 0:
+            try:
+                contribution = plan_contribution(valuation, targets, valuation.cash)
+            except Exception:
+                logger.exception("daily contribution-first alert planning failed")
+        message = _alert_message(plan, contribution)
 
         await post_discord(message)
         db.set_setting(LAST_DRIFT_ALERT_KEY, dedupe_value)
