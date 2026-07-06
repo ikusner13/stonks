@@ -56,12 +56,12 @@ def test_donut_single_holding_uses_two_half_arcs_and_empty_returns_empty():
 
 
 def test_corr_color_endpoints_and_text_flip():
-    assert corr_color(0) == ("#ffffff", "#173a40")
-    assert corr_color(-1)[0] == "#2166ac"
-    assert corr_color(1)[0] == "#b2182c"
-    assert corr_color(0.6)[1] == "#173a40"
-    assert corr_color(0.61)[1] == "#ffffff"
-    assert corr_color(-0.61)[1] == "#ffffff"
+    assert corr_color(0) == ("#131c1a", "#dfeeea")
+    assert corr_color(-1)[0] == "#6ba3d6"
+    assert corr_color(1)[0] == "#cf6a60"
+    assert corr_color(0.55)[1] == "#dfeeea"
+    assert corr_color(0.56)[1] == "#0f1a17"
+    assert corr_color(-0.56)[1] == "#0f1a17"
 
 
 def test_frontier_chart_coordinates_include_padding_and_extreme_marker():

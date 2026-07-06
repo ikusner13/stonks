@@ -1,32 +1,32 @@
-<h3 class="mb-3 text-sm font-semibold">Tax flags</h3>
+<h3 class="section-sub">Tax flags</h3>
 {% if tax_signals.harvest_candidates or tax_signals.repurchase_flags %}
   {% if tax_signals.harvest_candidates %}
-    <div class="overflow-x-auto">
-      <table class="w-full text-left text-sm">
-        <thead class="text-xs uppercase text-[var(--sea-ink-soft)]">
+    <div class="table-shell">
+      <table class="table">
+        <thead>
           <tr>
-            <th class="py-2 pr-4">Symbol</th>
-            <th class="py-2 pr-4">Loss $</th>
-            <th class="py-2 pr-4">Loss %</th>
-            <th class="py-2 pr-4">Wash sale</th>
+            <th>Symbol</th>
+            <th class="num">Loss $</th>
+            <th class="num">Loss %</th>
+            <th>Wash sale</th>
           </tr>
         </thead>
         <tbody>
           {% for candidate in tax_signals.harvest_candidates %}
-            <tr class="border-t border-[var(--line)]">
-              <td class="py-2 pr-4 font-semibold">{{ candidate.symbol }}</td>
-              <td class="py-2 pr-4 text-red-700">${{ candidate.unrealized_pl | abs | fmt_num }}</td>
-              <td class="py-2 pr-4 text-red-700">{{ candidate.unrealized_pct | abs | pct }}</td>
-              <td class="py-2 pr-4">
+            <tr>
+              <td>{{ candidate.symbol }}</td>
+              <td class="num neg">${{ candidate.unrealized_pl | abs | fmt_num }}</td>
+              <td class="num neg">{{ candidate.unrealized_pct | abs | pct }}</td>
+              <td>
                 {% if candidate.wash_sale_risk %}
-                  <span class="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">Risk</span>
+                  <span class="chip chip-danger">Risk</span>
                 {% else %}
-                  <span class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-2 py-0.5 text-xs font-semibold">Clear</span>
+                  <span class="chip">Clear</span>
                 {% endif %}
               </td>
             </tr>
             <tr>
-              <td colspan="4" class="pb-3 pr-4 text-xs text-[var(--sea-ink-soft)]">{{ candidate.note }}</td>
+              <td colspan="4" class="footnote">{{ candidate.note }}</td>
             </tr>
           {% endfor %}
         </tbody>
@@ -35,16 +35,15 @@
   {% endif %}
 
   {% if tax_signals.repurchase_flags %}
-    <ul class="{% if tax_signals.harvest_candidates %}mt-4 {% endif %}space-y-2 text-sm">
+    <ul class="ledger-list {% if tax_signals.harvest_candidates %}mt-4{% endif %}">
       {% for flag in tax_signals.repurchase_flags %}
-        <li class="border-t border-[var(--line)] pt-2">
-          <span class="font-semibold">{{ flag.symbol }}</span>:
-          {{ flag.note }}
+        <li>
+          <span><strong>{{ flag.symbol }}</strong>: {{ flag.note }}</span>
         </li>
       {% endfor %}
     </ul>
   {% endif %}
 {% else %}
-  <p class="text-sm text-[var(--sea-ink-soft)]">No tax flags.</p>
+  <p class="empty">No tax flags.</p>
 {% endif %}
-<p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ tax_signals.disclaimer }}</p>
+<p class="footnote mt-4">{{ tax_signals.disclaimer }}</p>

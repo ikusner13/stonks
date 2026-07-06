@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ sym }} · Stock Research{% endblock %}
 {% block content %}
-<main class="page-wrap px-4 pb-8 pt-10">
+<main class="page-wrap page">
   {% if not llm_configured %}
-  <p class="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm">
+  <p class="alert">
     OPENROUTER_API_KEY is not configured — research runs will fail.
   </p>
   {% endif %}
@@ -13,8 +13,8 @@
     hx-trigger="load"
     hx-swap="innerHTML"
   >
-    <h1 class="text-2xl font-bold">{{ sym }}</h1>
-    <p class="mt-4 text-sm text-[var(--sea-ink-soft)]">
+    <h1 class="page-title">{{ sym }}</h1>
+    <p class="loading-note">
       Fetching market data, then running research + critic review. This takes several seconds…
     </p>
   </div>

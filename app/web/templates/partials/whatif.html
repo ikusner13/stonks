@@ -1,42 +1,42 @@
 {% if not has_targets %}
-<p class="text-sm text-[var(--sea-ink-soft)]">Set target allocations before previewing contributions.</p>
+<p class="muted small">Set target allocations before previewing contributions.</p>
 {% elif not plan %}
-<p class="text-sm text-[var(--sea-ink-soft)]">Enter a positive contribution amount.</p>
+<p class="muted small">Enter a positive contribution amount.</p>
 {% elif not plan.items %}
-<div class="space-y-2 text-sm">
-  <p class="text-[var(--sea-ink-soft)]">No buys needed for this contribution.</p>
-  <p class="tabular-nums">Leftover cash: <span class="font-semibold">${{ plan.leftover_cash | fmt_num }}</span></p>
-  <p class="text-xs text-[var(--sea-ink-soft)]">{{ ds_disclaimer }}</p>
+<div class="flow">
+  <p class="muted small">No buys needed for this contribution.</p>
+  <p>Leftover cash: <span class="money">${{ plan.leftover_cash | fmt_num }}</span></p>
+  <p class="footnote">{{ ds_disclaimer }}</p>
 </div>
 {% else %}
-<div class="overflow-x-auto">
-  <table class="w-full text-sm">
+<div class="table-shell">
+  <table class="table">
     <thead>
-      <tr class="border-b border-[var(--line)] text-xs text-[var(--sea-ink-soft)]">
-        <th class="pb-2 text-left font-medium">Symbol</th>
-        <th class="pb-2 text-right font-medium">Buy $</th>
-        <th class="pb-2 text-right font-medium">~Shares</th>
-        <th class="pb-2 text-right font-medium">Now</th>
-        <th class="pb-2 text-right font-medium">After</th>
+      <tr>
+        <th>Symbol</th>
+        <th class="num">Buy $</th>
+        <th class="num">~Shares</th>
+        <th class="num">Now</th>
+        <th class="num">After</th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-[var(--line)]">
+    <tbody>
       {% for item in plan.items %}
       <tr>
-        <td class="py-3 pr-4 font-semibold">{{ item.symbol }}</td>
-        <td class="py-3 pr-4 text-right tabular-nums">${{ item.buy_usd | fmt_num }}</td>
-        <td class="py-3 pr-4 text-right tabular-nums">
-          {% if item.buy_shares is not none %}{{ item.buy_shares | fmt_num }}{% else %}<span class="text-[var(--sea-ink-soft)]">n/a</span>{% endif %}
+        <td><strong>{{ item.symbol }}</strong></td>
+        <td class="num">${{ item.buy_usd | fmt_num }}</td>
+        <td class="num">
+          {% if item.buy_shares is not none %}{{ item.buy_shares | fmt_num }}{% else %}<span class="muted">n/a</span>{% endif %}
         </td>
-        <td class="py-3 pr-4 text-right tabular-nums">{{ item.current_weight | pct }}</td>
-        <td class="py-3 text-right tabular-nums">{{ item.after_weight | pct }}</td>
+        <td class="num">{{ item.current_weight | pct }}</td>
+        <td class="num">{{ item.after_weight | pct }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-<div class="mt-3 space-y-2 text-xs text-[var(--sea-ink-soft)]">
-  <p>Leftover cash: <span class="font-semibold">${{ plan.leftover_cash | fmt_num }}</span>.</p>
-  <p>{{ ds_disclaimer }}</p>
+<div class="flow mt-4">
+  <p class="footnote">Leftover cash: <span class="money">${{ plan.leftover_cash | fmt_num }}</span>.</p>
+  <p class="footnote">{{ ds_disclaimer }}</p>
 </div>
 {% endif %}

@@ -1,32 +1,27 @@
 {# Portfolio volatility-regime signal. Context: signal = RegimeSignal | None #}
 {% if not has_holdings %}
-<p class="text-sm text-[var(--sea-ink-soft)]">Add holdings to compare recent volatility with your portfolio's own history.</p>
+<p class="muted small">Add holdings to compare recent volatility with your portfolio's own history.</p>
 {% elif signal is none %}
-<p class="text-sm text-[var(--sea-ink-soft)]">Not enough price history to measure the portfolio's volatility regime yet.</p>
+<p class="muted small">Not enough price history to measure the portfolio's volatility regime yet.</p>
 {% else %}
 {% set lvl = signal.level %}
-<div class="rounded-2xl border p-4 text-sm
-  {% if lvl == 'elevated' %}border-red-400/50 bg-red-500/10
-  {% elif lvl == 'normal' %}border-amber-400/50 bg-amber-500/10
-  {% else %}border-emerald-400/50 bg-emerald-500/10{% endif %}">
-  <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-    <p class="font-semibold">Volatility regime: {{ lvl }}</p>
-    <span class="rounded-full border border-[var(--line)] px-2 py-0.5 text-xs font-semibold tabular-nums">
-      {{ '%.1f' | format(signal.vol_ratio) }}x
-    </span>
+<div>
+  <div class="cluster">
+    <p><strong>Volatility regime: {{ lvl }}</strong></p>
+    <span class="chip">{{ '%.1f' | format(signal.vol_ratio) }}x</span>
   </div>
-  <dl class="mb-3 grid grid-cols-2 gap-3 text-xs">
-    <div>
-      <dt class="text-[var(--sea-ink-soft)]">Recent 21d vol</dt>
-      <dd class="mt-0.5 text-base font-semibold tabular-nums">{{ signal.short_vol | pct }}</dd>
+  <div class="cluster mt-4">
+    <div class="stat">
+      <span class="stat-label">Recent 21d vol</span>
+      <span class="stat-value">{{ signal.short_vol | pct }}</span>
     </div>
-    <div>
-      <dt class="text-[var(--sea-ink-soft)]">Longer-term vol</dt>
-      <dd class="mt-0.5 text-base font-semibold tabular-nums">{{ signal.long_vol | pct }}</dd>
+    <div class="stat">
+      <span class="stat-label">Longer-term vol</span>
+      <span class="stat-value">{{ signal.long_vol | pct }}</span>
     </div>
-  </dl>
-  <p>{{ signal.note }}</p>
-  <p class="mt-3 text-xs text-[var(--sea-ink-soft)]">
+  </div>
+  <p class="mt-4">{{ signal.note }}</p>
+  <p class="footnote mt-2">
     Based on {{ signal.sample_days }} daily portfolio returns, as of {{ signal.asof[:10] }}.
   </p>
 </div>

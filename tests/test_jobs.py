@@ -18,6 +18,8 @@ def _tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setattr(config, "REGIME_ALERT_ENABLED", False)
     monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", False)
     monkeypatch.setattr(config, "BACKUP_DIR", None)
+    # Real SnapTrade creds in a developer's .env must not leak into job registry tests.
+    monkeypatch.setattr(config, "SNAPTRADE_SYNC_READY", False)
     db.init_db()
     init_targets_db()
 

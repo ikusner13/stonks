@@ -1,54 +1,54 @@
 <div id="rebalance-panel">
   {% if not has_targets %}
-  <p class="text-sm text-[var(--sea-ink-soft)]">Set target allocations to generate a rebalance plan.</p>
+  <p class="muted small">Set target allocations to generate a rebalance plan.</p>
   {% elif not plan %}
-  <p class="text-sm text-[var(--sea-ink-soft)]">Add priced holdings or cash before generating a rebalance plan.</p>
+  <p class="muted small">Add priced holdings or cash before generating a rebalance plan.</p>
   {% else %}
-  <div class="mb-4 grid gap-3 text-sm sm:grid-cols-3">
-    <div>
-      <div class="text-xs text-[var(--sea-ink-soft)]">Base value</div>
-      <div class="font-semibold tabular-nums">${{ plan.base_value | fmt_num }}</div>
+  <div class="cluster">
+    <div class="stat">
+      <span class="stat-label">Base value</span>
+      <span class="stat-value">${{ plan.base_value | fmt_num }}</span>
     </div>
-    <div>
-      <div class="text-xs text-[var(--sea-ink-soft)]">Cash now</div>
-      <div class="font-semibold tabular-nums">${{ plan.cash_now | fmt_num }}</div>
+    <div class="stat">
+      <span class="stat-label">Cash now</span>
+      <span class="stat-value">${{ plan.cash_now | fmt_num }}</span>
     </div>
-    <div>
-      <div class="text-xs text-[var(--sea-ink-soft)]">Cash after plan</div>
-      <div class="font-semibold tabular-nums">${{ plan.cash_after | fmt_num }}</div>
+    <div class="stat">
+      <span class="stat-label">Cash after plan</span>
+      <span class="stat-value">${{ plan.cash_after | fmt_num }}</span>
     </div>
   </div>
 
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+  <div class="table-shell mt-4">
+    <table class="table">
       <thead>
-        <tr class="border-b border-[var(--line)] text-xs text-[var(--sea-ink-soft)]">
-          <th class="pb-2 text-left font-medium">Symbol</th>
-          <th class="pb-2 text-right font-medium">Current</th>
-          <th class="pb-2 text-right font-medium">Target</th>
-          <th class="pb-2 text-right font-medium">After</th>
-          <th class="pb-2 text-right font-medium">Drift</th>
-          <th class="pb-2 text-right font-medium">Action</th>
-          <th class="pb-2 text-right font-medium">$ Amount</th>
-          <th class="pb-2 text-right font-medium">~Shares</th>
+        <tr>
+          <th>Symbol</th>
+          <th class="num">Current</th>
+          <th class="num">Target</th>
+          <th class="num">After</th>
+          <th class="num">Drift</th>
+          <th>Action</th>
+          <th class="num">$ Amount</th>
+          <th class="num">~Shares</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-[var(--line)]">
+      <tbody>
         {% for item in plan.items %}
         <tr>
-          <td class="py-3 pr-4 font-semibold">{{ item.symbol }}</td>
-          <td class="py-3 pr-4 text-right tabular-nums">{{ item.current_weight | pct }}</td>
-          <td class="py-3 pr-4 text-right tabular-nums">{{ item.target_weight | pct }}</td>
-          <td class="py-3 pr-4 text-right tabular-nums">{{ item.after_weight | pct }}</td>
-          <td class="py-3 pr-4 text-right tabular-nums {% if item.action != 'hold' and item.drift > 0 %}text-amber-500{% elif item.action != 'hold' and item.drift < 0 %}text-sky-500{% endif %}">
+          <td><strong>{{ item.symbol }}</strong></td>
+          <td class="num">{{ item.current_weight | pct }}</td>
+          <td class="num">{{ item.target_weight | pct }}</td>
+          <td class="num">{{ item.after_weight | pct }}</td>
+          <td class="num{% if item.action != 'hold' %} {{ 'pos' if item.drift >= 0 else 'neg' }}{% endif %}">
             {{ '+' if item.drift >= 0 else '' }}{{ item.drift | pct }}
           </td>
-          <td class="py-3 pr-4 text-right font-semibold uppercase">{{ item.action }}</td>
-          <td class="py-3 pr-4 text-right tabular-nums">
+          <td>{{ item.action }}</td>
+          <td class="num">
             {{ '+' if item.delta_usd > 0 else '' }}${{ item.delta_usd | fmt_num }}
           </td>
-          <td class="py-3 text-right tabular-nums">
-            {% if item.delta_shares is not none %}{{ item.delta_shares | fmt_num }}{% else %}<span class="text-[var(--sea-ink-soft)]">n/a</span>{% endif %}
+          <td class="num">
+            {% if item.delta_shares is not none %}{{ item.delta_shares | fmt_num }}{% else %}<span class="muted">n/a</span>{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -56,31 +56,30 @@
     </table>
   </div>
 
-  <div class="mt-4 space-y-2 text-xs text-[var(--sea-ink-soft)]">
-    <p>Implicit cash target: <span class="font-semibold">{{ plan.cash_target_weight | pct }}</span>. Trades are held until drift exceeds {{ plan.threshold | pct }} absolute or {{ plan.relative_threshold | pct }} of a nonzero target.</p>
+  <div class="flow mt-4">
+    <p class="footnote">Implicit cash target: <strong>{{ plan.cash_target_weight | pct }}</strong>. Trades are held until drift exceeds {{ plan.threshold | pct }} absolute or {{ plan.relative_threshold | pct }} of a nonzero target.</p>
     {% if plan.untargeted %}
-    <p>Untargeted holdings excluded from trades: {{ plan.untargeted | join(", ") }}.</p>
+    <p class="footnote">Untargeted holdings excluded from trades: {{ plan.untargeted | join(", ") }}.</p>
     {% endif %}
-    <p>{{ ds_disclaimer }}</p>
+    <p class="footnote">{{ ds_disclaimer }}</p>
   </div>
 
-  <div class="mt-6 border-t border-[var(--line)] pt-5">
-    <form hx-post="/portfolio/whatif"
-          hx-target="#whatif-result"
-          hx-swap="innerHTML"
-          class="flex flex-wrap items-end gap-3">
-      <div class="flex flex-col gap-1">
-        <label class="text-xs text-[var(--sea-ink-soft)]">New contribution</label>
-        <input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal"
-          placeholder="1000.00"
-          class="w-36 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm" />
-      </div>
-      <button type="submit"
-        class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
-        Preview buys
-      </button>
-    </form>
-    <div id="whatif-result" class="mt-4"></div>
-  </div>
+  <hr class="rule">
+
+  <form hx-post="/portfolio/whatif"
+        hx-target="#whatif-result"
+        hx-swap="innerHTML"
+        class="cluster cluster-end">
+    <div class="field">
+      <label>New contribution</label>
+      <input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal"
+        placeholder="1000.00"
+        class="input input-sm" />
+    </div>
+    <button type="submit" class="btn btn-primary">
+      Preview buys
+    </button>
+  </form>
+  <div id="whatif-result" class="mt-4"></div>
   {% endif %}
 </div>

@@ -118,6 +118,21 @@ def test_map_activities_maps_supported_types_and_skips_duplicate_or_unmapped():
     assert [activity.external_id for activity in skipped] == ["known", "fee-1"]
 
 
+def test_map_activities_maps_rei_sweep_as_dividend_income():
+    # Fidelity core money-market sweeps (SPAXX interest) arrive as REI.
+    mapped, skipped = map_activities(
+        [_activity("rei-1", "REI", symbol="SPAXX", shares=20.96, price=1.0, amount=20.96)],
+        set(),
+    )
+
+    assert skipped == []
+    assert len(mapped) == 1
+    assert mapped[0].side == "dividend"
+    assert mapped[0].symbol == "SPAXX"
+    assert mapped[0].shares is None
+    assert mapped[0].amount == 20.96
+
+
 def test_map_activities_skips_buy_or_sell_without_symbol():
     mapped, skipped = map_activities([_activity("bad", "BUY", symbol=None)], set())
 

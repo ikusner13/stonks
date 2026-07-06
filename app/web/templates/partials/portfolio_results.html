@@ -1,18 +1,21 @@
 {% macro metrics_card(title, m) %}
-<div class="rounded-2xl border border-[var(--line)] p-4">
-  <h3 class="mb-3 text-sm font-semibold">{{ title }}</h3>
-  <dl class="mb-4 grid grid-cols-3 gap-2 text-sm">
-    <div><dt class="text-xs text-[var(--sea-ink-soft)]">Exp. return</dt><dd class="font-semibold">{{ m.expected_return | pct }}</dd></div>
-    <div><dt class="text-xs text-[var(--sea-ink-soft)]">Volatility</dt><dd class="font-semibold">{{ m.volatility | pct }}</dd></div>
-    <div><dt class="text-xs text-[var(--sea-ink-soft)]">Sharpe</dt><dd class="font-semibold">{{ '%.2f' | format(m.sharpe) }}</dd></div>
-  </dl>
-  <ul class="space-y-1.5">
+<div class="panel">
+  <h3 class="section-sub">{{ title }}</h3>
+  <div class="cluster">
+    <div class="stat"><span class="stat-label">Exp. return</span><span class="stat-value">{{ m.expected_return | pct }}</span></div>
+    <div class="stat"><span class="stat-label">Volatility</span><span class="stat-value">{{ m.volatility | pct }}</span></div>
+    <div class="stat"><span class="stat-label">Sharpe</span><span class="stat-value">{{ '%.2f' | format(m.sharpe) }}</span></div>
+  </div>
+  <ul class="flow mt-4">
     {% for sym, w in m.weights | dictsort(by='value', reverse=true) %}
     {% if w > 0.0005 %}
-    <li class="text-sm">
-      <div class="flex justify-between"><span class="font-medium">{{ sym }}</span><span class="text-[var(--sea-ink-soft)]">{{ w | pct }}</span></div>
-      <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--chip-bg)]">
-        <div class="h-full rounded-full bg-[linear-gradient(90deg,#56c6be,#7ed3bf)]" style="width: {{ [100, w * 100] | min }}%"></div>
+    <li>
+      <div class="cluster">
+        <strong>{{ sym }}</strong><span class="muted small">{{ w | pct }}</span>
+      </div>
+      {# TODO(design): no meter/progress-bar component in the new system; falling back to a plain track+fill pair styled with existing vars. #}
+      <div class="mt-2" style="height: 6px; border-radius: 3px; background: var(--line); overflow: hidden;">
+        <div style="height: 100%; border-radius: 3px; background: var(--accent); width: {{ [100, w * 100] | min }}%"></div>
       </div>
     </li>
     {% endif %}
@@ -23,126 +26,124 @@
 
 {% if not available %}
 {% if warnings %}
-<ul class="mt-6 mb-3 space-y-1 text-xs text-amber-500">{% for w in warnings %}<li>⚠ {{ w }}</li>{% endfor %}</ul>
+<div class="alert mt-5">
+  <ul>{% for w in warnings %}<li>⚠ {{ w }}</li>{% endfor %}</ul>
+</div>
 {% endif %}
-<p class="mt-6 rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm">{{ reason }}</p>
+<p class="alert mt-5">{{ reason }}</p>
 {% else %}
-<div class="mt-8">
-  {% if result.warnings %}
-  <ul class="mb-4 space-y-1 text-xs text-amber-500">{% for w in result.warnings %}<li>⚠ {{ w }}</li>{% endfor %}</ul>
-  {% endif %}
-  <div class="grid gap-6 sm:grid-cols-2">
-    {{ metrics_card("Optimal (" ~ result.objective ~ ")", result.optimal) }}
-    {% if result.current %}{{ metrics_card("Current allocation", result.current) }}{% endif %}
-  </div>
+{% if result.warnings %}
+<div class="alert">
+  <ul>{% for w in result.warnings %}<li>⚠ {{ w }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+<div class="flow mt-4">
+  {{ metrics_card("Optimal (" ~ result.objective ~ ")", result.optimal) }}
+  {% if result.current %}{{ metrics_card("Current allocation", result.current) }}{% endif %}
+</div>
 
-  <form hx-post="/portfolio/targets/adopt"
-        hx-target="#targets-panel"
-        hx-swap="outerHTML"
-        class="mt-4">
-    {% for sym, weight in result.optimal.weights.items() %}
-    <input type="hidden" name="symbol[]" value="{{ sym }}" />
-    <input type="hidden" name="weight[]" value="{{ weight }}" />
+<form hx-post="/portfolio/targets/adopt"
+      hx-target="#targets-panel"
+      hx-swap="outerHTML"
+      class="mt-5">
+  {% for sym, weight in result.optimal.weights.items() %}
+  <input type="hidden" name="symbol[]" value="{{ sym }}" />
+  <input type="hidden" name="weight[]" value="{{ weight }}" />
+  {% endfor %}
+  <button type="submit" class="btn btn-primary">
+    Adopt optimizer weights as targets
+  </button>
+</form>
+
+{% if drift %}
+<section class="section">
+  <h2 class="section-title">Allocation drift &amp; rebalancing signals</h2>
+  <p class="section-note">
+    {% if drift.significant_count %}
+      {{ drift.significant_count }} position{{ 's' if drift.significant_count != 1 }} crossed the {{ drift.threshold_pct | pct }} absolute / {{ drift.relative_threshold_pct | pct }} relative drift band.
+    {% else %}
+      Every position is within the {{ drift.threshold_pct | pct }} absolute / {{ drift.relative_threshold_pct | pct }} relative drift band — no meaningful drift right now.
+    {% endif %}
+  </p>
+  <ul class="ledger-list">
+    {% for d in drift.items %}
+    <li>
+      <div>
+        <strong>{{ d.symbol }}</strong>
+        {% if d.significant %}<p class="muted small">{{ d.suggestion }}</p>{% endif %}
+      </div>
+      <span class="num small {{ 'pos' if d.drift >= 0 else 'neg' }}">
+        now {{ d.current_weight | pct }} → target {{ d.target_weight | pct }}<br>
+        ({{ '+' if d.drift >= 0 else '' }}{{ d.drift | pct }})
+      </span>
+    </li>
     {% endfor %}
-    <button type="submit"
-      class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
-      Adopt optimizer weights as targets
-    </button>
-  </form>
-
-  {% if drift %}
-  <section class="mt-8">
-    <h2 class="mb-1 text-sm font-semibold">Allocation drift &amp; rebalancing signals</h2>
-    <p class="mb-3 text-xs text-[var(--sea-ink-soft)]">
-      {% if drift.significant_count %}
-        {{ drift.significant_count }} position{{ 's' if drift.significant_count != 1 }} crossed the {{ drift.threshold_pct | pct }} absolute / {{ drift.relative_threshold_pct | pct }} relative drift band.
-      {% else %}
-        Every position is within the {{ drift.threshold_pct | pct }} absolute / {{ drift.relative_threshold_pct | pct }} relative drift band — no meaningful drift right now.
-      {% endif %}
+  </ul>
+  <details class="footnote mt-2">
+    <summary>What "drift" means and why it matters</summary>
+    <p class="mt-2">
+      Drift is the gap between what you actually hold today and the allocation
+      the optimizer suggests. As prices move, winners grow into a bigger slice
+      of your portfolio and losers shrink — so your real risk slowly drifts
+      away from your intended plan. Rebalancing (trimming the overweight,
+      topping up the underweight) nudges you back toward target. These are
+      prompts to consider, not instructions — you decide every trade.
     </p>
-    <ul class="space-y-2">
-      {% for d in drift.items %}
-      <li class="rounded-xl border p-3 text-sm
-        {% if d.significant and d.direction == 'over' %}border-amber-400/50 bg-amber-500/10
-        {% elif d.significant %}border-sky-400/50 bg-sky-500/10
-        {% else %}border-[var(--line)]{% endif %}">
-        <div class="flex items-center justify-between">
-          <span class="font-semibold">{{ d.symbol }}</span>
-          <span class="tabular-nums text-[var(--sea-ink-soft)]">
-            now {{ d.current_weight | pct }} → target {{ d.target_weight | pct }}
-            <span class="ml-1 font-medium {% if d.significant and d.direction == 'over' %}text-amber-500{% elif d.significant %}text-sky-500{% endif %}">
-              ({{ '+' if d.drift >= 0 else '' }}{{ d.drift | pct }})
-            </span>
-          </span>
-        </div>
-        {% if d.significant %}<p class="mt-1 text-[var(--sea-ink-soft)]">{{ d.suggestion }}</p>{% endif %}
-      </li>
-      {% endfor %}
-    </ul>
-    <details class="mt-3 text-xs text-[var(--sea-ink-soft)]">
-      <summary class="cursor-pointer font-medium">What "drift" means and why it matters</summary>
-      <p class="mt-2">
-        Drift is the gap between what you actually hold today and the allocation
-        the optimizer suggests. As prices move, winners grow into a bigger slice
-        of your portfolio and losers shrink — so your real risk slowly drifts
-        away from your intended plan. Rebalancing (trimming the overweight,
-        topping up the underweight) nudges you back toward target. These are
-        prompts to consider, not instructions — you decide every trade.
-      </p>
-    </details>
-  </section>
-  {% endif %}
+  </details>
+</section>
+{% endif %}
 
-  {% if frontier_chart %}
-  <section class="mt-6">
-    <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Efficient frontier</h2>
-    <svg viewBox="-52 -20 704 324" role="img" aria-label="Efficient frontier chart" class="h-72 w-full overflow-visible">
+{% if frontier_chart %}
+<section class="section">
+  <h2 class="section-title">Efficient frontier</h2>
+  <div class="chart">
+    <svg viewBox="-52 -20 704 324" role="img" aria-label="Efficient frontier chart">
       <line x1="0" y1="{{ frontier_chart.height }}" x2="{{ frontier_chart.width }}" y2="{{ frontier_chart.height }}" stroke="var(--line)" stroke-width="1"></line>
       <line x1="0" y1="0" x2="0" y2="{{ frontier_chart.height }}" stroke="var(--line)" stroke-width="1"></line>
       {% for x, label in frontier_chart.x_ticks %}
-      <line x1="{{ x }}" y1="{{ frontier_chart.height }}" x2="{{ x }}" y2="{{ frontier_chart.height + 5 }}" stroke="var(--sea-ink-soft)" stroke-width="1"></line>
-      <text x="{{ x }}" y="{{ frontier_chart.height + 20 }}" text-anchor="middle" fill="var(--sea-ink-soft)" font-size="11">{{ label }}</text>
+      <line x1="{{ x }}" y1="{{ frontier_chart.height }}" x2="{{ x }}" y2="{{ frontier_chart.height + 5 }}" stroke="var(--ink-muted)" stroke-width="1"></line>
+      <text x="{{ x }}" y="{{ frontier_chart.height + 20 }}" text-anchor="middle" fill="var(--ink-muted)" font-size="11">{{ label }}</text>
       {% endfor %}
       {% for y, label in frontier_chart.y_ticks %}
-      <line x1="-5" y1="{{ y }}" x2="0" y2="{{ y }}" stroke="var(--sea-ink-soft)" stroke-width="1"></line>
-      <text x="-10" y="{{ y + 4 }}" text-anchor="end" fill="var(--sea-ink-soft)" font-size="11">{{ label }}</text>
+      <line x1="-5" y1="{{ y }}" x2="0" y2="{{ y }}" stroke="var(--ink-muted)" stroke-width="1"></line>
+      <text x="-10" y="{{ y + 4 }}" text-anchor="end" fill="var(--ink-muted)" font-size="11">{{ label }}</text>
       {% endfor %}
       <polyline
         points="{{ frontier_chart.frontier_polyline }}"
         fill="none"
-        stroke="var(--lagoon)"
+        stroke="var(--accent)"
         stroke-width="1.5"
         stroke-linecap="round"
         stroke-linejoin="round"></polyline>
       {% if frontier_chart.optimal_xy %}
-      <circle cx="{{ frontier_chart.optimal_xy[0] }}" cy="{{ frontier_chart.optimal_xy[1] }}" r="4.5" fill="var(--lagoon-deep)" stroke="var(--bg-base)" stroke-width="2"></circle>
-      <text x="{{ frontier_chart.optimal_xy[0] + 8 }}" y="{{ frontier_chart.optimal_xy[1] - 8 }}" fill="var(--sea-ink)" font-size="11" font-weight="600">Optimal</text>
+      <circle cx="{{ frontier_chart.optimal_xy[0] }}" cy="{{ frontier_chart.optimal_xy[1] }}" r="4.5" fill="var(--accent-deep)" stroke="var(--bg)" stroke-width="2"></circle>
+      <text x="{{ frontier_chart.optimal_xy[0] + 8 }}" y="{{ frontier_chart.optimal_xy[1] - 8 }}" fill="var(--ink)" font-size="11" font-weight="600">Optimal</text>
       {% endif %}
       {% if frontier_chart.current_xy %}
-      <circle cx="{{ frontier_chart.current_xy[0] }}" cy="{{ frontier_chart.current_xy[1] }}" r="4.5" fill="var(--palm)" stroke="var(--bg-base)" stroke-width="2"></circle>
-      <text x="{{ frontier_chart.current_xy[0] + 8 }}" y="{{ frontier_chart.current_xy[1] + 16 }}" fill="var(--sea-ink)" font-size="11" font-weight="600">Current</text>
+      <circle cx="{{ frontier_chart.current_xy[0] }}" cy="{{ frontier_chart.current_xy[1] }}" r="4.5" fill="var(--neutral)" stroke="var(--bg)" stroke-width="2"></circle>
+      <text x="{{ frontier_chart.current_xy[0] + 8 }}" y="{{ frontier_chart.current_xy[1] + 16 }}" fill="var(--ink)" font-size="11" font-weight="600">Current</text>
       {% endif %}
-      <text x="{{ frontier_chart.width / 2 }}" y="{{ frontier_chart.height + 40 }}" text-anchor="middle" fill="var(--sea-ink-soft)" font-size="11">Volatility</text>
-      <text x="-44" y="{{ frontier_chart.height / 2 }}" transform="rotate(-90 -44 {{ frontier_chart.height / 2 }})" text-anchor="middle" fill="var(--sea-ink-soft)" font-size="11">Expected return</text>
+      <text x="{{ frontier_chart.width / 2 }}" y="{{ frontier_chart.height + 40 }}" text-anchor="middle" fill="var(--ink-muted)" font-size="11">Volatility</text>
+      <text x="-44" y="{{ frontier_chart.height / 2 }}" transform="rotate(-90 -44 {{ frontier_chart.height / 2 }})" text-anchor="middle" fill="var(--ink-muted)" font-size="11">Expected return</text>
     </svg>
-    <details class="mt-2 text-xs text-[var(--sea-ink-soft)]">
-      <summary class="cursor-pointer font-medium">Frontier points</summary>
-      <div class="mt-2 flex flex-wrap gap-x-6 gap-y-1">
-        {% for p in result.efficient_frontier %}<span>σ {{ p.volatility | pct }} → r {{ p.expected_return | pct }}</span>{% endfor %}
-      </div>
-    </details>
-  </section>
-  {% elif result.efficient_frontier %}
-  <section class="mt-6">
-    <h2 class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--sea-ink-soft)]">Efficient frontier</h2>
-    <details class="text-xs text-[var(--sea-ink-soft)]" open>
-      <summary class="cursor-pointer font-medium">Frontier points</summary>
-      <div class="mt-2 flex flex-wrap gap-x-6 gap-y-1">
-        {% for p in result.efficient_frontier %}<span>σ {{ p.volatility | pct }} → r {{ p.expected_return | pct }}</span>{% endfor %}
-      </div>
-    </details>
-  </section>
-  {% endif %}
-  <p class="mt-6 text-xs text-[var(--sea-ink-soft)]">{{ result.disclaimer }}</p>
-</div>
+  </div>
+  <details class="footnote mt-2">
+    <summary>Frontier points</summary>
+    <div class="cluster mt-2">
+      {% for p in result.efficient_frontier %}<span>σ {{ p.volatility | pct }} → r {{ p.expected_return | pct }}</span>{% endfor %}
+    </div>
+  </details>
+</section>
+{% elif result.efficient_frontier %}
+<section class="section">
+  <h2 class="section-title">Efficient frontier</h2>
+  <details class="footnote" open>
+    <summary>Frontier points</summary>
+    <div class="cluster mt-2">
+      {% for p in result.efficient_frontier %}<span>σ {{ p.volatility | pct }} → r {{ p.expected_return | pct }}</span>{% endfor %}
+    </div>
+  </details>
+</section>
+{% endif %}
+<p class="footnote mt-5">{{ result.disclaimer }}</p>
 {% endif %}

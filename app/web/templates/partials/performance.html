@@ -1,59 +1,58 @@
 {# Performance metrics partial. Context: metrics = PerformanceMetrics | None, has_holdings: bool #}
 {% if not has_holdings %}
-<p class="text-sm text-[var(--sea-ink-soft)]">Add holdings to see performance analytics.</p>
+<p class="empty">Add holdings to see performance analytics.</p>
 {% elif metrics is none %}
-<p class="text-sm text-[var(--sea-ink-soft)]">Insufficient price history to compute performance. Need at least 30 trading days.</p>
+<p class="empty">Insufficient price history to compute performance. Need at least 30 trading days.</p>
 {% else %}
-<h3 class="mb-1 text-sm font-semibold">Allocation backtest</h3>
-<p class="mb-4 text-xs text-[var(--sea-ink-soft)]">
+<h3 class="section-sub">Allocation backtest</h3>
+<p class="section-note">
   How today's weights would have performed if held constant over the last {{ metrics.sample_days }} trading days ({{ metrics.window_start }} → {{ metrics.window_end }}). This is not your account's realized return.
 </p>
 {% if metrics.excluded_symbols %}
-<p class="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm">
+<p class="alert">
   Excluded from this backtest due to insufficient price history: {{ metrics.excluded_symbols | join(", ") }}.
 </p>
 {% endif %}
-<dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">CAGR</dt>
-    <dd class="mt-0.5 text-lg font-semibold {% if metrics.cagr >= 0 %}text-emerald-500{% else %}text-red-500{% endif %}">{{ metrics.cagr | pct }}</dd>
+<dl class="cluster">
+  <div class="stat">
+    <dt>CAGR</dt>
+    <dd class="{{ 'pos' if metrics.cagr >= 0 else 'neg' }}">{{ metrics.cagr | pct }}</dd>
   </div>
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Total Return</dt>
-    <dd class="mt-0.5 text-lg font-semibold {% if metrics.total_return >= 0 %}text-emerald-500{% else %}text-red-500{% endif %}">{{ metrics.total_return | pct }}</dd>
+  <div class="stat">
+    <dt>Total Return</dt>
+    <dd class="{{ 'pos' if metrics.total_return >= 0 else 'neg' }}">{{ metrics.total_return | pct }}</dd>
   </div>
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Volatility</dt>
-    <dd class="mt-0.5 text-lg font-semibold">{{ metrics.volatility | pct }}</dd>
+  <div class="stat">
+    <dt>Volatility</dt>
+    <dd>{{ metrics.volatility | pct }}</dd>
   </div>
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Max Drawdown</dt>
-    <dd class="mt-0.5 text-lg font-semibold text-red-500">{{ metrics.max_drawdown | pct }}</dd>
+  <div class="stat">
+    <dt>Max Drawdown</dt>
+    <dd class="neg">{{ metrics.max_drawdown | pct }}</dd>
   </div>
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Sharpe</dt>
-    <dd class="mt-0.5 text-lg font-semibold">{{ '%.2f' | format(metrics.sharpe) }}</dd>
+  <div class="stat">
+    <dt>Sharpe</dt>
+    <dd>{{ '%.2f' | format(metrics.sharpe) }}</dd>
   </div>
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Sortino</dt>
-    <dd class="mt-0.5 text-lg font-semibold">{{ '%.2f' | format(metrics.sortino) }}</dd>
+  <div class="stat">
+    <dt>Sortino</dt>
+    <dd>{{ '%.2f' | format(metrics.sortino) }}</dd>
   </div>
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Calmar</dt>
-    <dd class="mt-0.5 text-lg font-semibold">{{ '%.2f' | format(metrics.calmar) }}</dd>
+  <div class="stat">
+    <dt>Calmar</dt>
+    <dd>{{ '%.2f' | format(metrics.calmar) }}</dd>
   </div>
   {% if metrics.benchmark_cagr is not none %}
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">{{ metrics.benchmark }} CAGR</dt>
-    <dd class="mt-0.5 text-lg font-semibold {% if metrics.benchmark_cagr >= 0 %}text-emerald-500{% else %}text-red-500{% endif %}">{{ metrics.benchmark_cagr | pct }}</dd>
+  <div class="stat">
+    <dt>{{ metrics.benchmark }} CAGR</dt>
+    <dd class="{{ 'pos' if metrics.benchmark_cagr >= 0 else 'neg' }}">{{ metrics.benchmark_cagr | pct }}</dd>
   </div>
   {% endif %}
 </dl>
-<p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ backtest_caveat }}</p>
-<p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ metrics.lookback_days }}-day requested lookback vs {{ metrics.benchmark }} · as of {{ metrics.asof[:10] }}</p>
+<p class="footnote mt-4">{{ backtest_caveat }}</p>
+<p class="footnote mt-4">{{ metrics.lookback_days }}-day requested lookback vs {{ metrics.benchmark }} · as of {{ metrics.asof[:10] }}</p>
 <div class="mt-4">
-  <a href="/portfolio/tearsheet" target="_blank"
-    class="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-1.5 text-xs font-semibold no-underline hover:opacity-80">
+  <a href="/portfolio/tearsheet" target="_blank" class="btn btn-sm">
     Download full tearsheet ↗
   </a>
 </div>

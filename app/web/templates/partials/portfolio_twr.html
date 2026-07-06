@@ -1,44 +1,44 @@
 {% if summary is none %}
-<p class="text-sm text-[var(--sea-ink-soft)]">Need at least two daily snapshots — check back tomorrow.</p>
+<p class="empty">Need at least two daily snapshots — check back tomorrow.</p>
 {% else %}
-<p class="mb-4 text-xs text-[var(--sea-ink-soft)]">
+<p class="section-note">
   {{ summary.window_start }} → {{ summary.window_end }} · {{ summary.num_periods }} linked periods
 </p>
-<dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">TWR</dt>
-    <dd class="mt-0.5 text-lg font-semibold tabular-nums {% if summary.twr_cumulative >= 0 %}text-emerald-500{% else %}text-red-500{% endif %}">
+<dl class="cluster">
+  <div class="stat">
+    <dt>TWR</dt>
+    <dd class="{{ 'pos' if summary.twr_cumulative >= 0 else 'neg' }}">
       {{ summary.twr_cumulative | pct }}
     </dd>
   </div>
   {% if summary.twr_annualized is not none %}
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Annualized</dt>
-    <dd class="mt-0.5 text-lg font-semibold tabular-nums {% if summary.twr_annualized >= 0 %}text-emerald-500{% else %}text-red-500{% endif %}">
+  <div class="stat">
+    <dt>Annualized</dt>
+    <dd class="{{ 'pos' if summary.twr_annualized >= 0 else 'neg' }}">
       {{ summary.twr_annualized | pct }}/yr
     </dd>
   </div>
   {% endif %}
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">{{ summary.benchmark }}</dt>
+  <div class="stat">
+    <dt>{{ summary.benchmark }}</dt>
     {% if summary.benchmark_cumulative is not none %}
-    <dd class="mt-0.5 text-lg font-semibold tabular-nums {% if summary.benchmark_cumulative >= 0 %}text-emerald-500{% else %}text-red-500{% endif %}">
+    <dd class="{{ 'pos' if summary.benchmark_cumulative >= 0 else 'neg' }}">
       {{ summary.benchmark_cumulative | pct }}
     </dd>
     {% else %}
-    <dd class="mt-0.5 text-lg font-semibold tabular-nums text-[var(--sea-ink-soft)]">n/a</dd>
+    <dd class="muted">n/a</dd>
     {% endif %}
   </div>
-  <div>
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Excess</dt>
+  <div class="stat">
+    <dt>Excess</dt>
     {% if summary.excess_cumulative is not none %}
-    <dd class="mt-0.5 text-lg font-semibold tabular-nums {% if summary.excess_cumulative >= 0 %}text-emerald-500{% else %}text-red-500{% endif %}">
+    <dd class="{{ 'pos' if summary.excess_cumulative >= 0 else 'neg' }}">
       {{ summary.excess_cumulative | pct }}
     </dd>
     {% else %}
-    <dd class="mt-0.5 text-lg font-semibold tabular-nums text-[var(--sea-ink-soft)]">n/a</dd>
+    <dd class="muted">n/a</dd>
     {% endif %}
   </div>
 </dl>
-<p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ summary.note }}</p>
+<p class="footnote mt-4">{{ summary.note }}</p>
 {% endif %}

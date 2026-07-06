@@ -2,5 +2,5 @@
 <button
   hx-post="/watchlist/toggle/{{ sym }}"
   hx-swap="outerHTML"
-  class="rounded-full border border-[var(--line)] px-2 py-0.5 text-xs"
+  class="btn btn-sm"
 >{{ "Remove" if watched else "+ Watchlist" }}</button>

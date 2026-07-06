@@ -60,8 +60,10 @@ def _mirror_holdings(diff: HoldingsDiff) -> None:
         _set_cash_for_update(c, diff.cash_after)
 
 
-async def run_sync(*, dry_run: bool = False) -> SyncResult:
-    since = _last_sync_since()
+async def run_sync(*, dry_run: bool = False, since: date | None = None) -> SyncResult:
+    """``since`` overrides the incremental window — used to backfill history;
+    external_id dedupe makes overlapping imports safe."""
+    since = since or _last_sync_since()
     snapshot = await fetch_snapshot()
     activities = await fetch_activities(since)
     local_holdings = list_holdings()

@@ -13,6 +13,11 @@ ACTIVITY_SIDE_MAP = {
     "SELL": "sell",
     "DIVIDEND": "dividend",
     "INTEREST": "dividend",
+    # Fidelity reports core money-market sweeps (e.g. SPAXX interest) as REI
+    # "reinvestment"; the position itself shows up as cash, so this is income.
+    # A true stock DRIP would lose its buy row, but the share change still
+    # arrives via the position mirror.
+    "REI": "dividend",
     "CONTRIBUTION": "deposit",
     "DEPOSIT": "deposit",
     "EFT_IN": "deposit",

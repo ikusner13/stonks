@@ -109,17 +109,21 @@ def donut(slices: list[tuple[str, float]]) -> list[DonutSlice]:
 
 
 def corr_color(rho: float) -> tuple[str, str]:
-    """Return redundant correlation color encoding as ``(bg_hex, text_hex)``."""
+    """Return redundant correlation color encoding as ``(bg_hex, text_hex)``.
+
+    Diverging blue/red ramp anchored on the dark app background: cells
+    brighten with |rho|, so intensity still reads as magnitude on a dark page.
+    """
     if not isfinite(rho):
         rho = 0.0
     rho = max(-1.0, min(1.0, rho))
     if rho < 0:
-        bg = _mix_hex("#ffffff", "#2166ac", abs(rho))
+        bg = _mix_hex("#131c1a", "#6ba3d6", abs(rho))
     elif rho > 0:
-        bg = _mix_hex("#ffffff", "#b2182c", rho)
+        bg = _mix_hex("#131c1a", "#cf6a60", rho)
     else:
-        bg = "#ffffff"
-    text = "#ffffff" if abs(rho) > 0.6 else "#173a40"
+        bg = "#131c1a"
+    text = "#0f1a17" if abs(rho) > 0.55 else "#dfeeea"
     return bg, text
 
 

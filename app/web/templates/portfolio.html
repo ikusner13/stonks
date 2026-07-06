@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Portfolio · Stock Research{% endblock %}
 {% block content %}
-<main class="page-wrap px-4 pb-12 pt-10">
-  <h1 class="mb-1 text-3xl font-bold tracking-tight">Portfolio</h1>
-  <p class="mb-8 text-sm text-[var(--sea-ink-soft)]">Review synced broker positions, optimize allocation, and measure historical performance.</p>
+<main class="page-wrap page">
+  <h1 class="page-title">Portfolio</h1>
+  <p class="page-lede">Review synced broker positions, optimize allocation, and measure historical performance.</p>
 
   {% include "partials/broker_sync.html" %}
 
   {# ── A) Holdings ──────────────────────────────────────────────────────────── #}
-  <section class="mb-10">
-    <h2 class="mb-4 text-lg font-semibold">Holdings</h2>
+  <section class="section">
+    <h2 class="section-title">Holdings</h2>
 
     {# Live valuation table — refreshed after broker sync. #}
     <div
@@ -21,131 +21,126 @@
   </section>
 
   {# ── B) Portfolio Health & Trade Decision Support ────────────────────────── #}
-  <section class="mb-10">
-    <h2 class="mb-1 text-lg font-semibold">Portfolio Health</h2>
-    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">A plain-language read on how concentrated your portfolio is, to help you weigh your next manual trade. Decision support, not advice.</p>
+  <section class="section">
+    <h2 class="section-title">Portfolio Health</h2>
+    <p class="section-note">A plain-language read on how concentrated your portfolio is, to help you weigh your next manual trade. Decision support, not advice.</p>
     {% include "partials/portfolio_health.html" %}
 
     {# Correlation / hidden-concentration — lazily loaded; needs price history. #}
-    <div class="mt-5">
-      <h3 class="mb-2 text-sm font-semibold">Do your holdings move together?</h3>
-      <div hx-get="/portfolio/correlation" hx-trigger="load" hx-swap="innerHTML">
-        <p class="text-sm text-[var(--sea-ink-soft)]">Checking how your holdings correlate…</p>
-      </div>
+    <h3 class="section-sub">Do your holdings move together?</h3>
+    <div hx-get="/portfolio/correlation" hx-trigger="load" hx-swap="innerHTML">
+      <p class="loading-note">Checking how your holdings correlate…</p>
     </div>
 
-    <div class="mt-5">
-      <h3 class="mb-2 text-sm font-semibold">Is volatility running hot?</h3>
-      <div hx-get="/portfolio/regime" hx-trigger="load" hx-swap="innerHTML">
-        <p class="text-sm text-[var(--sea-ink-soft)]">Checking recent volatility…</p>
-      </div>
+    <h3 class="section-sub">Is volatility running hot?</h3>
+    <div hx-get="/portfolio/regime" hx-trigger="load" hx-swap="innerHTML">
+      <p class="loading-note">Checking recent volatility…</p>
     </div>
 
-    <p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ ds_disclaimer }}</p>
+    <p class="footnote mt-4">{{ ds_disclaimer }}</p>
   </section>
 
   {# ── C) NAV History ───────────────────────────────────────────────────────── #}
-  <section class="mb-10">
-    <h2 class="mb-4 text-lg font-semibold">NAV history</h2>
-    <div class="rounded-2xl border border-[var(--line)] p-5">
+  <section class="section">
+    <h2 class="section-title">NAV history</h2>
+    <div class="panel">
       <div
         hx-get="/portfolio/nav"
         hx-trigger="load"
         hx-swap="innerHTML">
-        <p class="text-sm text-[var(--sea-ink-soft)]">Loading NAV history…</p>
+        <div class="skeleton" aria-hidden="true"><div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
       </div>
     </div>
   </section>
 
   {# ── D) Performance ───────────────────────────────────────────────────────── #}
-  <section class="mb-10">
-    <h2 class="mb-4 text-lg font-semibold">Realized time-weighted return</h2>
-    <div class="mb-5 rounded-2xl border border-[var(--line)] p-5">
+  <section class="section">
+    <h2 class="section-title">Realized time-weighted return</h2>
+    <div class="panel">
       <div
         hx-get="/portfolio/twr"
         hx-trigger="load"
         hx-swap="innerHTML">
-        <p class="text-sm text-[var(--sea-ink-soft)]">Computing time-weighted return…</p>
+        <p class="loading-note">Computing time-weighted return…</p>
       </div>
     </div>
 
-    <h2 class="mb-4 text-lg font-semibold">Allocation backtest</h2>
-    <div class="rounded-2xl border border-[var(--line)] p-5">
+    <h2 class="section-title mt-5">Allocation backtest</h2>
+    <div class="panel">
       <div
         hx-get="/portfolio/performance"
         hx-trigger="load"
         hx-swap="innerHTML">
-        <p class="text-sm text-[var(--sea-ink-soft)]">Computing performance metrics…</p>
+        <div class="skeleton" aria-hidden="true"><div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
       </div>
     </div>
   </section>
 
   {# ── E) Target allocations & rebalance plan ──────────────────────────────── #}
-  <section class="mb-10">
-    <h2 class="mb-1 text-lg font-semibold">Target Allocations</h2>
-    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Set your own target weights. Anything below 100% becomes an implicit cash target.</p>
+  <section class="section">
+    <h2 class="section-title">Target Allocations</h2>
+    <p class="section-note">Set your own target weights. Anything below 100% becomes an implicit cash target.</p>
     <div
       hx-get="/portfolio/targets"
       hx-trigger="load"
       hx-swap="outerHTML">
-      <p class="text-sm text-[var(--sea-ink-soft)]">Loading target allocations…</p>
+      <div class="skeleton" aria-hidden="true"><div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
     </div>
 
-    <div class="mt-6 rounded-2xl border border-[var(--line)] p-5">
-      <h3 class="mb-3 text-sm font-semibold">Rebalance plan</h3>
+    <div class="panel mt-5">
+      <h3 class="section-sub">Rebalance plan</h3>
       <div
         hx-get="/portfolio/rebalance"
         hx-trigger="load, targets-changed from:body"
         hx-swap="outerHTML">
-        <p class="text-sm text-[var(--sea-ink-soft)]">Loading rebalance plan…</p>
+        <div class="skeleton" aria-hidden="true"><div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
       </div>
     </div>
   </section>
 
   {# ── F) Optimizer & rebalancing signals ──────────────────────────────────── #}
-  <section>
-    <h2 class="mb-1 text-lg font-semibold">Optimizer &amp; Rebalancing Signals</h2>
-    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Mean-variance allocation runs on your synced holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>
+  <section class="section">
+    <h2 class="section-title">Optimizer &amp; Rebalancing Signals</h2>
+    <p class="section-note">Mean-variance allocation runs on your synced holdings. After optimizing, you'll also see which positions have drifted furthest from the suggested target — research context, not advice.</p>
 
     <form hx-post="/portfolio/optimize" hx-target="#opt-results" hx-indicator="#opt-spin">
-      <div class="flex flex-wrap items-center gap-3">
-        <label class="flex items-center gap-2 text-xs text-[var(--sea-ink-soft)]">
+      <div class="cluster mt-4">
+        <label class="muted small">
           objective:
-          <select name="objective" class="rounded-full border border-[var(--line)] bg-transparent px-2 py-1 text-xs">
+          <select name="objective" class="select">
             <option value="max_sharpe">max_sharpe</option>
             <option value="min_risk">min_risk</option>
           </select>
         </label>
-        <button type="submit"
-          class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-1.5 text-sm font-semibold">
+        <button type="submit" class="btn btn-primary">
           Optimize
         </button>
       </div>
     </form>
 
-    <p id="opt-spin" class="htmx-indicator mt-6 text-sm text-[var(--sea-ink-soft)]">
+    <p id="opt-spin" class="htmx-indicator loading-note mt-5">
       Fetching price history and optimizing…
     </p>
     <div id="opt-results"></div>
   </section>
 
   {# ── G) Transactions ─────────────────────────────────────────────────────── #}
-  <section class="mt-10">
-    <h2 class="mb-1 text-lg font-semibold">Transactions</h2>
-    <p class="mb-4 text-sm text-[var(--sea-ink-soft)]">Imported automatically from your broker.</p>
+  <section class="section">
+    <h2 class="section-title">Transactions</h2>
+    <p class="section-note">Imported automatically from your broker.</p>
     <div
-      class="mb-5 rounded-2xl border border-[var(--line)] p-5"
       hx-get="/portfolio/tax"
       hx-trigger="load, txns-changed from:body"
       hx-swap="innerHTML">
-      <p class="text-sm text-[var(--sea-ink-soft)]">Loading tax flags…</p>
+      <p class="loading-note">Loading tax flags…</p>
     </div>
     <div
       id="transactions-panel"
+      class="mt-5"
       hx-get="/portfolio/transactions"
       hx-trigger="load, txns-changed from:body"
       hx-swap="innerHTML">
-      <p class="text-sm text-[var(--sea-ink-soft)]">Loading transactions…</p>
+      <div class="skeleton" aria-hidden="true"><div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
     </div>
   </section>
 </main>
