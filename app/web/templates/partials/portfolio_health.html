@@ -2,75 +2,78 @@
    Context: health = PortfolioHealth | None, allocation_slices = list[DonutSlice],
    valuation = PortfolioValuation #}
 {% if allocation_slices %}
-<div class="mb-5 grid gap-5 lg:grid-cols-[260px_1fr]">
-  <div>
-    <svg viewBox="0 0 220 220" role="img" aria-label="Portfolio allocation by market value" class="h-56 w-56">
-      {% for slice in allocation_slices %}
-      <path d="{{ slice.path_d }}" fill="{{ slice.color }}" stroke="var(--bg-base)" stroke-width="2"></path>
-      {% endfor %}
-    </svg>
-  </div>
-  <div>
-    <h3 class="mb-3 text-sm font-semibold">Allocation by market value</h3>
-    <ul class="grid gap-2 sm:grid-cols-2">
-      {% for slice in allocation_slices %}
-      <li class="flex items-center justify-between gap-3 rounded-xl border border-[var(--line)] px-3 py-2 text-sm">
-        <span class="flex min-w-0 items-center gap-2">
-          <span class="h-3 w-3 shrink-0 rounded-sm" style="background: {{ slice.color }}"></span>
-          <span class="truncate font-medium">{{ slice.label }}</span>
-        </span>
-        <span class="shrink-0 text-right tabular-nums text-[var(--sea-ink-soft)]">
-          {{ '%.1f%%' | format(slice.pct) }} · ${{ slice.value | fmt_num }}
-        </span>
-      </li>
-      {% endfor %}
-    </ul>
-    {% if valuation.unpriced_symbols %}
-    <p class="mt-3 text-xs text-[var(--sea-ink-soft)]">
-      Excluded from allocation because prices are unavailable: {{ valuation.unpriced_symbols | join(", ") }}.
-    </p>
-    {% endif %}
+<div class="panel">
+  <div class="cluster">
+    <div class="chart">
+      <svg viewBox="0 0 220 220" role="img" aria-label="Portfolio allocation by market value" style="width: 220px; height: 220px;">
+        {% for slice in allocation_slices %}
+        <path d="{{ slice.path_d }}" fill="{{ slice.color }}" stroke="var(--bg)" stroke-width="2"></path>
+        {% endfor %}
+      </svg>
+    </div>
+    <div>
+      <h3 class="section-sub">Allocation by market value</h3>
+      <ul class="ledger-list">
+        {% for slice in allocation_slices %}
+        <li>
+          <span class="cluster">
+            {# TODO(design): no legend-swatch component in the new system; sizing is inline. #}
+            <span style="display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; background: {{ slice.color }};"></span>
+            <strong>{{ slice.label }}</strong>
+          </span>
+          <span class="num muted small">
+            {{ '%.1f%%' | format(slice.pct) }} · ${{ slice.value | fmt_num }}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if valuation.unpriced_symbols %}
+      <p class="footnote mt-2">
+        Excluded from allocation because prices are unavailable: {{ valuation.unpriced_symbols | join(", ") }}.
+      </p>
+      {% endif %}
+    </div>
   </div>
 </div>
 {% elif valuation.unpriced_symbols %}
-<p class="mb-4 text-xs text-[var(--sea-ink-soft)]">
+<p class="footnote">
   Allocation excludes unpriced holdings: {{ valuation.unpriced_symbols | join(", ") }}.
 </p>
 {% endif %}
 
 {% if health is none %}
-<p class="text-sm text-[var(--sea-ink-soft)]">Add holdings with live prices to see your concentration and diversification.</p>
+<p class="empty">Add holdings with live prices to see your concentration and diversification.</p>
 {% else %}
 {% set lvl = health.concentration_level %}
-<div class="grid gap-4 sm:grid-cols-4">
-  <div class="rounded-2xl border border-[var(--line)] p-4">
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Holdings</dt>
-    <dd class="mt-0.5 text-2xl font-semibold tabular-nums">{{ health.num_holdings }}</dd>
+<div class="cluster mt-4">
+  <div class="stat">
+    <span class="stat-label">Holdings</span>
+    <span class="stat-value">{{ health.num_holdings }}</span>
   </div>
-  <div class="rounded-2xl border border-[var(--line)] p-4">
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Top holding{% if health.top1_symbol %} · {{ health.top1_symbol }}{% endif %}</dt>
-    <dd class="mt-0.5 text-2xl font-semibold tabular-nums">{{ health.top1_pct | pct }}</dd>
+  <div class="stat">
+    <span class="stat-label">Top holding{% if health.top1_symbol %} · {{ health.top1_symbol }}{% endif %}</span>
+    <span class="stat-value">{{ health.top1_pct | pct }}</span>
   </div>
-  <div class="rounded-2xl border border-[var(--line)] p-4">
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Top 3</dt>
-    <dd class="mt-0.5 text-2xl font-semibold tabular-nums">{{ health.top3_pct | pct }}</dd>
+  <div class="stat">
+    <span class="stat-label">Top 3</span>
+    <span class="stat-value">{{ health.top3_pct | pct }}</span>
   </div>
-  <div class="rounded-2xl border border-[var(--line)] p-4">
-    <dt class="text-xs text-[var(--sea-ink-soft)]">Top 5</dt>
-    <dd class="mt-0.5 text-2xl font-semibold tabular-nums">{{ health.top5_pct | pct }}</dd>
+  <div class="stat">
+    <span class="stat-label">Top 5</span>
+    <span class="stat-value">{{ health.top5_pct | pct }}</span>
   </div>
 </div>
 
-<div class="mt-4 rounded-2xl border p-4 text-sm
-  {% if lvl == 'high' %}border-red-400/50 bg-red-500/10
-  {% elif lvl == 'moderate' %}border-amber-400/50 bg-amber-500/10
-  {% else %}border-emerald-400/50 bg-emerald-500/10{% endif %}">
-  <p class="mb-1 font-semibold">Concentration: {{ lvl }}</p>
-  <p>{{ health.diversification_note }}</p>
+<div class="mt-4">
+  <p>
+    <strong>Concentration:</strong>
+    <span class="sig-badge {{ 'sig-bearish' if lvl == 'high' else ('sig-neutral' if lvl == 'moderate' else 'sig-bullish') }}">{{ lvl }}</span>
+  </p>
+  <p class="muted small mt-2">{{ health.diversification_note }}</p>
 </div>
 
-<details class="mt-3 text-sm text-[var(--sea-ink-soft)]">
-  <summary class="cursor-pointer font-medium">Why concentration matters for your next trade</summary>
+<details class="footnote mt-2">
+  <summary><strong>Why concentration matters for your next trade</strong></summary>
   <p class="mt-2">
     Concentration is how much of your money sits in a few positions. Higher
     concentration increases the impact if one stock moves sharply against you —

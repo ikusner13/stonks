@@ -1,4 +1,4 @@
 <div class="error-panel">
   <p>⚠ {{ message }}</p>
-  {% if retry_url %}<button hx-get="{{ retry_url }}" hx-target="closest .error-panel" hx-swap="outerHTML">Retry</button>{% endif %}
+  {% if retry_url %}<button hx-get="{{ retry_url }}" hx-target="closest .error-panel" hx-swap="outerHTML" class="btn btn-sm">Retry</button>{% endif %}
 </div>

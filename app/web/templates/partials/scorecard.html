@@ -1,15 +1,15 @@
 {% set scorecard = result.scorecard %}
 {% set assessment = result.confidence_assessment %}
 {% if scorecard %}
-<section class="scorecard mt-6">
-  <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-    <div class="flex flex-wrap gap-2 text-xs">
+<section class="scorecard mt-5">
+  <div class="cluster">
+    <div class="cluster">
       <span class="sig-badge sig-bullish">{{ scorecard.bullish }} bullish</span>
       <span class="sig-badge sig-bearish">{{ scorecard.bearish }} bearish</span>
       <span class="sig-badge sig-neutral">{{ scorecard.neutral }} neutral</span>
       <span class="sig-badge sig-unavailable">{{ scorecard.unavailable }} unavailable</span>
     </div>
-    <div class="flex flex-wrap gap-2 text-xs">
+    <div class="cluster">
       <span class="source-chip">completeness {{ scorecard.data_completeness | pct }}</span>
       {% if assessment %}
       <span class="source-chip" title="{{ assessment.reasons | join(' · ') }}">computed confidence {{ assessment.computed }}</span>
@@ -18,7 +18,7 @@
   </div>
 
   {% if result.ticker.sources %}
-  <div class="mb-3 flex flex-wrap gap-2">
+  <div class="cluster mt-2">
     {% for source, status in result.ticker.sources.items() %}
     <span
       class="source-chip source-{{ status }}"
@@ -28,12 +28,12 @@
   </div>
   {% endif %}
 
-  <div class="overflow-x-auto">
+  <div class="table-shell mt-2">
     <table class="scorecard-table">
       <thead>
         <tr>
           <th>Indicator</th>
-          <th>Value</th>
+          <th class="num">Value</th>
           <th>Signal</th>
           <th>Detail</th>
         </tr>
@@ -42,15 +42,15 @@
         {% for i in scorecard.indicators %}
         <tr>
           <td>{{ i.label }}</td>
-          <td class="tabular-nums">
+          <td class="num">
             {% if i.value is none %}
-              <span class="text-[var(--sea-ink-soft)]">—</span>
+              <span class="muted">—</span>
             {% else %}
               {{ i.value | indicator_value(i.unit) }}
             {% endif %}
           </td>
           <td><span class="sig-badge sig-{{ i.signal }}">{{ i.signal }}</span></td>
-          <td>{{ i.detail }}</td>
+          <td class="cell-wide">{{ i.detail }}</td>
         </tr>
         {% endfor %}
       </tbody>

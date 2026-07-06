@@ -1,21 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Watchlist · Stock Research{% endblock %}
 {% block content %}
-<main class="page-wrap px-4 pb-8 pt-10">
-  <h1 class="mb-6 text-3xl font-bold tracking-tight">Watchlist</h1>
+<main class="page-wrap page">
+  <h1 class="page-title">Watchlist</h1>
   {% if not items %}
-  <p class="text-sm text-[var(--sea-ink-soft)]">
-    Nothing saved yet. Add tickers from <a href="/" class="underline">Discover</a> or a research page.
+  <p class="empty">
+    Nothing saved yet. Add tickers from <a href="/">Discover</a> or a research page.
   </p>
   {% else %}
-  <ul class="space-y-2">
+  <ul class="ledger-list">
     {% for it in items %}
-    <li id="watch-{{ it.symbol }}" class="flex items-center justify-between rounded-xl border border-[var(--line)] px-4 py-3">
-      <a href="/research/{{ it.symbol }}" class="font-semibold no-underline">{{ it.symbol }}</a>
+    <li id="watch-{{ it.symbol }}">
+      <a href="/research/{{ it.symbol }}">{{ it.symbol }}</a>
       <button
         hx-post="/watchlist/remove/{{ it.symbol }}"
         hx-target="#watch-{{ it.symbol }}" hx-swap="outerHTML"
-        class="rounded-full border border-[var(--line)] px-3 py-1 text-xs"
+        class="btn btn-danger btn-sm"
       >Remove</button>
     </li>
     {% endfor %}

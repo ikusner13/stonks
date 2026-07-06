@@ -1,41 +1,41 @@
 {% extends "base.html" %}
 {% block title %}Discover · Stock Research{% endblock %}
 {% block content %}
-<main class="page-wrap px-4 pb-8 pt-10">
-  <h1 class="mb-2 text-3xl font-bold tracking-tight">Discover ideas</h1>
-  <p class="mb-6 text-sm text-[var(--sea-ink-soft)]">
+<main class="page-wrap page">
+  <h1 class="page-title">Discover ideas</h1>
+  <p class="page-lede">
     Describe what you're looking for. Candidates are validated against real market data —
     hallucinated tickers are dropped and numeric filters enforced in code.
   </p>
   {% if not llm_configured %}
-  <p class="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm">
+  <p class="alert">
     OPENROUTER_API_KEY is not configured — research runs will fail.
   </p>
   {% endif %}
 
-  <form hx-post="/discover" hx-target="#results" hx-indicator="#discover-spin" class="flex gap-2">
+  <form hx-post="/discover" hx-target="#results" hx-indicator="#discover-spin" class="cluster">
     <input
       name="goal"
       value="{{ goal or '' }}"
       placeholder="e.g. AI infrastructure under $100B market cap"
-      class="flex-1 rounded-xl border border-[var(--line)] bg-transparent px-4 py-2.5 text-sm outline-none focus:border-[var(--sea-ink-soft)]"
+      class="input grow"
     />
-    <button type="submit" class="rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] px-5 py-2.5 text-sm font-semibold">
+    <button type="submit" class="btn btn-primary">
       Discover
     </button>
   </form>
 
-  <div class="mt-3 flex flex-wrap gap-2">
+  <div class="cluster mt-2">
     {% for ex in examples %}
     <button
       hx-post="/discover" hx-target="#results" hx-indicator="#discover-spin"
       hx-vals='{"goal": {{ ex | tojson }}}'
-      class="rounded-full border border-[var(--line)] px-3 py-1 text-xs text-[var(--sea-ink-soft)]"
+      class="chip"
     >{{ ex }}</button>
     {% endfor %}
   </div>
 
-  <p id="discover-spin" class="htmx-indicator mt-8 text-sm text-[var(--sea-ink-soft)]">
+  <p id="discover-spin" class="htmx-indicator loading-note">
     Interpreting the goal, screening, validating candidates against live data… this takes a few seconds.
   </p>
 

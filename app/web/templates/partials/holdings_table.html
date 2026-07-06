@@ -2,11 +2,11 @@
    Context: valuation = PortfolioValuation (may have empty holdings list) #}
 <div id="holdings-table">
   {% if import_summary %}
-  <div class="mb-3 rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-3 text-sm">
-    <p class="font-semibold">Imported {{ import_summary.imported }} holding{{ '' if import_summary.imported == 1 else 's' }}.</p>
+  <div class="flow">
+    <p>Imported {{ import_summary.imported }} holding{{ '' if import_summary.imported == 1 else 's' }}.</p>
     {% if import_summary.skipped %}
-    <p class="mt-1 text-[var(--sea-ink-soft)]">Skipped {{ import_summary.skipped | length }} row{{ '' if import_summary.skipped | length == 1 else 's' }}:</p>
-    <ul class="mt-1 list-disc pl-5 text-[var(--sea-ink-soft)]">
+    <p class="muted small">Skipped {{ import_summary.skipped | length }} row{{ '' if import_summary.skipped | length == 1 else 's' }}:</p>
+    <ul class="muted small">
       {% for item in import_summary.skipped %}
       <li>{{ item }}</li>
       {% endfor %}
@@ -15,83 +15,83 @@
   </div>
   {% endif %}
   {% if not valuation.holdings %}
-  <p class="py-4 text-sm text-[var(--sea-ink-soft)]">No holdings yet. Add a position below.</p>
-  <div class="max-w-md overflow-x-auto">
-    <table class="w-full text-sm">
-      <tbody class="divide-y divide-[var(--line)]">
+  <p class="empty">No holdings yet. Add a position below.</p>
+  <div class="table-shell">
+    <table class="table">
+      <tfoot>
         <tr>
-          <td class="py-2 font-semibold">Cash</td>
-          <td class="py-2 text-right tabular-nums">${{ valuation.cash | fmt_num }}</td>
+          <td>Cash</td>
+          <td class="num money">${{ valuation.cash | fmt_num }}</td>
         </tr>
         <tr>
-          <td class="py-2 font-semibold">Total (incl. cash)</td>
-          <td class="py-2 text-right tabular-nums">${{ valuation.total_with_cash | fmt_num }}</td>
+          <td>Total (incl. cash)</td>
+          <td class="num money-lg">${{ valuation.total_with_cash | fmt_num }}</td>
         </tr>
         <tr>
-          <td class="py-2 font-semibold">Dry powder</td>
-          <td class="py-2 text-right tabular-nums">{{ valuation.cash_pct | pct }}</td>
+          <td>Dry powder</td>
+          <td class="num">{{ valuation.cash_pct | pct }}</td>
         </tr>
-      </tbody>
+      </tfoot>
     </table>
   </div>
   {% else %}
   {% if valuation.unpriced_symbols %}
-  <p class="mb-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm">
+  <p class="alert mt-2">
     Prices unavailable for {{ valuation.unpriced_symbols | join(", ") }} — these positions are excluded from the totals below.
   </p>
   {% endif %}
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+  <div class="table-shell">
+    <table class="table">
       <thead>
-        <tr class="border-b border-[var(--line)] text-xs text-[var(--sea-ink-soft)]">
-          <th class="pb-2 text-left font-medium">Symbol</th>
-          <th class="pb-2 text-right font-medium">Shares</th>
-          <th class="pb-2 text-right font-medium">Avg Cost</th>
-          <th class="pb-2 text-right font-medium">Price</th>
-          <th class="pb-2 text-right font-medium">Mkt Value</th>
-          <th class="pb-2 text-right font-medium">P&amp;L ($)</th>
-          <th class="pb-2 text-right font-medium">P&amp;L (%)</th>
-          <th class="pb-2 text-right font-medium">Weight</th>
-          <th class="pb-2"></th>
+        <tr>
+          <th>Symbol</th>
+          <th class="num">Shares</th>
+          <th class="num">Avg Cost</th>
+          <th class="num">Price</th>
+          <th class="num">Mkt Value</th>
+          <th class="num">P&amp;L ($)</th>
+          <th class="num">P&amp;L (%)</th>
+          <th class="num">Weight</th>
+          <th></th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-[var(--line)]">
+      <tbody>
         {% for h in valuation.holdings %}
         {% set pl_pos = h.unrealized_pl is not none and h.unrealized_pl >= 0 %}
         {% set pl_neg = h.unrealized_pl is not none and h.unrealized_pl < 0 %}
-        <tr class="group">
-          <td class="py-3 pr-4 font-semibold">
-            <a href="/research/{{ h.symbol }}" class="no-underline hover:underline">{{ h.symbol }}</a>
+        <tr>
+          <td>
+            <a href="/research/{{ h.symbol }}">{{ h.symbol }}</a>
           </td>
-          <td class="py-3 pr-4 text-right tabular-nums">{{ h.shares | fmt_num }}</td>
-          <td class="py-3 pr-4 text-right tabular-nums">
-            {% if h.avg_cost is not none %}${{ h.avg_cost | fmt_num }}{% else %}<span class="text-[var(--sea-ink-soft)]">—</span>{% endif %}
+          <td class="num">{{ h.shares | fmt_num }}</td>
+          <td class="num">
+            {% if h.avg_cost is not none %}${{ h.avg_cost | fmt_num }}{% else %}<span class="muted">—</span>{% endif %}
           </td>
-          <td class="py-3 pr-4 text-right tabular-nums">
-            {% if h.price is not none %}${{ h.price | fmt_num }}{% else %}<span class="text-[var(--sea-ink-soft)]">—</span>{% endif %}
+          <td class="num">
+            {% if h.price is not none %}${{ h.price | fmt_num }}{% else %}<span class="muted">—</span>{% endif %}
           </td>
-          <td class="py-3 pr-4 text-right tabular-nums">
-            {% if h.market_value is not none %}${{ h.market_value | fmt_num }}{% else %}<span class="text-[var(--sea-ink-soft)]">—</span>{% endif %}
+          <td class="num">
+            {% if h.market_value is not none %}${{ h.market_value | fmt_num }}{% else %}<span class="muted">—</span>{% endif %}
           </td>
-          <td class="py-3 pr-4 text-right tabular-nums {% if pl_pos %}text-emerald-500{% elif pl_neg %}text-red-500{% endif %}">
+          <td class="num {% if pl_pos %}pos{% elif pl_neg %}neg{% endif %}">
             {% if h.unrealized_pl is not none %}
               {{ '+' if h.unrealized_pl >= 0 else '' }}${{ h.unrealized_pl | fmt_num }}
-            {% else %}<span class="text-[var(--sea-ink-soft)]">—</span>{% endif %}
+            {% else %}<span class="muted">—</span>{% endif %}
           </td>
-          <td class="py-3 pr-4 text-right tabular-nums {% if pl_pos %}text-emerald-500{% elif pl_neg %}text-red-500{% endif %}">
+          <td class="num {% if pl_pos %}pos{% elif pl_neg %}neg{% endif %}">
             {% if h.unrealized_pl_pct is not none %}
               {{ '+' if h.unrealized_pl_pct >= 0 else '' }}{{ h.unrealized_pl_pct | pct }}
-            {% else %}<span class="text-[var(--sea-ink-soft)]">—</span>{% endif %}
+            {% else %}<span class="muted">—</span>{% endif %}
           </td>
-          <td class="py-3 pr-4 text-right tabular-nums text-[var(--sea-ink-soft)]">
+          <td class="num muted">
             {% if h.weight is not none %}{{ h.weight | pct }}{% else %}—{% endif %}
           </td>
-          <td class="py-3 text-right">
+          <td class="num">
             <button
               hx-post="/portfolio/holdings/remove/{{ h.symbol }}"
               hx-target="#holdings-table"
               hx-swap="outerHTML"
-              class="rounded-full border border-[var(--line)] px-2.5 py-0.5 text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+              class="btn btn-danger btn-sm">
               ×
             </button>
           </td>
@@ -99,36 +99,36 @@
         {% endfor %}
       </tbody>
       <tfoot>
-        <tr class="border-t border-[var(--line)] font-semibold">
-          <td class="pt-3" colspan="4">Securities total</td>
-          <td class="pt-3 text-right tabular-nums">${{ valuation.total_value | fmt_num }}</td>
+        <tr>
+          <td colspan="4">Securities total</td>
+          <td class="num money">${{ valuation.total_value | fmt_num }}</td>
           {% set tot_pos = valuation.total_unrealized_pl >= 0 %}
-          <td class="pt-3 text-right tabular-nums {% if tot_pos %}text-emerald-500{% else %}text-red-500{% endif %}">
+          <td class="num {% if tot_pos %}pos{% else %}neg{% endif %}">
             {{ '+' if tot_pos else '' }}${{ valuation.total_unrealized_pl | fmt_num }}
           </td>
-          <td class="pt-3 text-right tabular-nums {% if tot_pos %}text-emerald-500{% else %}text-red-500{% endif %}">
+          <td class="num {% if tot_pos %}pos{% else %}neg{% endif %}">
             {{ '+' if tot_pos else '' }}{{ valuation.total_unrealized_pl_pct | pct }}
           </td>
           <td colspan="2"></td>
         </tr>
-        <tr class="font-semibold">
-          <td class="pt-3" colspan="4">Cash</td>
-          <td class="pt-3 text-right tabular-nums">${{ valuation.cash | fmt_num }}</td>
+        <tr>
+          <td colspan="4">Cash</td>
+          <td class="num money">${{ valuation.cash | fmt_num }}</td>
           <td colspan="4"></td>
         </tr>
-        <tr class="font-semibold">
-          <td class="pt-3" colspan="4">Total (incl. cash)</td>
-          <td class="pt-3 text-right tabular-nums">${{ valuation.total_with_cash | fmt_num }}</td>
+        <tr>
+          <td colspan="4">Total (incl. cash)</td>
+          <td class="num money-lg">${{ valuation.total_with_cash | fmt_num }}</td>
           <td colspan="4"></td>
         </tr>
-        <tr class="font-semibold">
-          <td class="pt-3" colspan="4">Dry powder</td>
-          <td class="pt-3 text-right tabular-nums">{{ valuation.cash_pct | pct }}</td>
+        <tr>
+          <td colspan="4">Dry powder</td>
+          <td class="num">{{ valuation.cash_pct | pct }}</td>
           <td colspan="4"></td>
         </tr>
       </tfoot>
     </table>
   </div>
   {% endif %}
-  <p class="mt-2 text-xs text-[var(--sea-ink-soft)]">As of {{ valuation.asof[:19] | replace("T", " ") }} UTC</p>
+  <p class="footnote mt-2">As of {{ valuation.asof[:19] | replace("T", " ") }} UTC</p>
 </div>
