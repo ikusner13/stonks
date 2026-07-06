@@ -36,6 +36,7 @@ from ..portfolio.decision_support import (
     analyze_drift,
     assess_portfolio_health,
     compute_correlation_insight,
+    compute_regime_signal,
     suggest_position_size,
 )
 from ..portfolio.holdings import (
@@ -53,7 +54,7 @@ from ..portfolio.plan import (
     plan_rebalance,
     set_targets,
 )
-from ..portfolio.performance import compute_performance, tearsheet_html
+from ..portfolio.performance import BACKTEST_CAVEAT, compute_performance, tearsheet_html
 from ..portfolio.snapshots import (
     build_nav_series,
     init_snapshots_db,
@@ -925,6 +926,27 @@ async def portfolio_correlation(request: Request):
         )
 
 
+@app.get("/portfolio/regime", response_class=HTMLResponse)
+async def portfolio_regime(request: Request):
+    try:
+        valuation = await value_holdings()
+        weights = {h.symbol: h.weight for h in valuation.holdings if h.weight is not None}
+        signal = await compute_regime_signal(weights) if weights else None
+        return templates.TemplateResponse(
+            request,
+            "partials/portfolio_regime.html",
+            {
+                "signal": signal,
+                "has_holdings": bool(valuation.holdings),
+            },
+        )
+    except Exception:
+        logger.exception("portfolio volatility regime failed")
+        return _error_partial(
+            request, "Portfolio volatility regime failed — see server logs.", "/portfolio/regime"
+        )
+
+
 @app.get("/portfolio/performance", response_class=HTMLResponse)
 async def portfolio_performance(request: Request):
     try:
@@ -934,14 +956,14 @@ async def portfolio_performance(request: Request):
             return templates.TemplateResponse(
                 request,
                 "partials/performance.html",
-                {"has_holdings": False, "metrics": None},
+                {"has_holdings": False, "metrics": None, "backtest_caveat": BACKTEST_CAVEAT},
             )
         weights = {h.symbol: h.weight for h in valuation.holdings if h.weight is not None}
         metrics = await compute_performance(weights) if weights else None
         return templates.TemplateResponse(
             request,
             "partials/performance.html",
-            {"has_holdings": True, "metrics": metrics},
+            {"has_holdings": True, "metrics": metrics, "backtest_caveat": BACKTEST_CAVEAT},
         )
     except Exception:
         logger.exception("portfolio performance failed")

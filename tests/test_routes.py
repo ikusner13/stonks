@@ -4,7 +4,7 @@ from app import config, db
 from app.indicators.schemas import Indicator, IndicatorScorecard
 from app.llm.pipeline import InsufficientDataError
 from app.portfolio import holdings as holdings_mod
-from app.portfolio.decision_support import CorrelationInsight, PositionSizeGuidance
+from app.portfolio.decision_support import CorrelationInsight, PositionSizeGuidance, RegimeSignal
 from app.portfolio.holdings import HoldingValuation, PortfolioValuation
 from app.portfolio.optimize import FrontierPoint, OptimizeResult, PortfolioMetrics
 from app.schemas import Critique, FabricationCheck, ResearchResult, Thesis, TickerData, TickerReport
@@ -410,6 +410,70 @@ def test_correlation_insight_validates_old_cache_payload_without_matrix():
     )
 
     assert insight.matrix is None
+
+
+def test_regime_partial_renders_signal(monkeypatch):
+    async def fake_value_holdings():
+        return PortfolioValuation(
+            holdings=[
+                HoldingValuation(
+                    symbol="AAA",
+                    shares=1,
+                    avg_cost=None,
+                    price=60,
+                    market_value=60,
+                    cost_value=None,
+                    unrealized_pl=None,
+                    unrealized_pl_pct=None,
+                    weight=0.6,
+                ),
+                HoldingValuation(
+                    symbol="BBB",
+                    shares=1,
+                    avg_cost=None,
+                    price=40,
+                    market_value=40,
+                    cost_value=None,
+                    unrealized_pl=None,
+                    unrealized_pl_pct=None,
+                    weight=0.4,
+                ),
+            ],
+            total_value=100,
+            total_cost=0,
+            total_unrealized_pl=0,
+            total_unrealized_pl_pct=0,
+            cash=0,
+            total_with_cash=100,
+            cash_pct=0,
+            asof="2026-07-05T00:00:00Z",
+        )
+
+    seen = {}
+
+    async def fake_compute_regime_signal(weights):
+        seen["weights"] = weights
+        return RegimeSignal(
+            short_vol=0.3,
+            long_vol=0.15,
+            vol_ratio=2.0,
+            level="elevated",
+            note="risk is running hotter than usual",
+            sample_days=180,
+            asof="2026-07-05T00:00:00Z",
+        )
+
+    monkeypatch.setattr(web_app, "value_holdings", fake_value_holdings)
+    monkeypatch.setattr(web_app, "compute_regime_signal", fake_compute_regime_signal)
+    client = TestClient(web_app.app)
+
+    response = client.get("/portfolio/regime")
+
+    assert response.status_code == 200
+    assert seen["weights"] == {"AAA": 0.6, "BBB": 0.4}
+    assert "Volatility regime: elevated" in response.text
+    assert "30.0%" in response.text
+    assert "15.0%" in response.text
 
 
 def test_optimizer_partial_contains_frontier_polyline(monkeypatch):

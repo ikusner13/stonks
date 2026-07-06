@@ -102,6 +102,13 @@
       </div>
     </div>
 
+    <div class="mt-5">
+      <h3 class="mb-2 text-sm font-semibold">Is volatility running hot?</h3>
+      <div hx-get="/portfolio/regime" hx-trigger="load" hx-swap="innerHTML">
+        <p class="text-sm text-[var(--sea-ink-soft)]">Checking recent volatility…</p>
+      </div>
+    </div>
+
     <p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ ds_disclaimer }}</p>
   </section>
 

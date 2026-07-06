@@ -38,6 +38,10 @@
     <dt class="text-xs text-[var(--sea-ink-soft)]">Sortino</dt>
     <dd class="mt-0.5 text-lg font-semibold">{{ '%.2f' | format(metrics.sortino) }}</dd>
   </div>
+  <div>
+    <dt class="text-xs text-[var(--sea-ink-soft)]">Calmar</dt>
+    <dd class="mt-0.5 text-lg font-semibold">{{ '%.2f' | format(metrics.calmar) }}</dd>
+  </div>
   {% if metrics.benchmark_cagr is not none %}
   <div>
     <dt class="text-xs text-[var(--sea-ink-soft)]">{{ metrics.benchmark }} CAGR</dt>
@@ -45,6 +49,7 @@
   </div>
   {% endif %}
 </dl>
+<p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ backtest_caveat }}</p>
 <p class="mt-4 text-xs text-[var(--sea-ink-soft)]">{{ metrics.lookback_days }}-day requested lookback vs {{ metrics.benchmark }} · as of {{ metrics.asof[:10] }}</p>
 <div class="mt-4">
   <a href="/portfolio/tearsheet" target="_blank"

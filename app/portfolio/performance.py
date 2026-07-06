@@ -16,12 +16,20 @@ from pydantic import BaseModel, Field
 
 from .history import NoDataError, fetch_price_history
 
+BACKTEST_CAVEAT = (
+    "This backtest replays today's weights over past prices — hindsight the "
+    "portfolio never had. It ignores trading costs and taxes, and only includes "
+    "symbols that survived to today. Treat it as a risk profile of the current "
+    "allocation, not a forecast."
+)
+
 
 class PerformanceMetrics(BaseModel):
     cagr: float
     total_return: float
     sharpe: float
     sortino: float
+    calmar: float
     volatility: float
     max_drawdown: float
     benchmark: str
@@ -80,6 +88,7 @@ def _compute_sync(
         total_return = float(qs.stats.comp(portfolio))
         sharpe_val = float(qs.stats.sharpe(portfolio))
         sortino_val = float(qs.stats.sortino(portfolio))
+        calmar_val = float(qs.stats.calmar(portfolio))
         vol_val = float(qs.stats.volatility(portfolio))
         mdd_val = float(qs.stats.max_drawdown(portfolio))
     except Exception:
@@ -104,6 +113,7 @@ def _compute_sync(
         total_return=total_return,
         sharpe=sharpe_val,
         sortino=sortino_val,
+        calmar=calmar_val,
         volatility=vol_val,
         max_drawdown=mdd_val,
         benchmark=benchmark,
