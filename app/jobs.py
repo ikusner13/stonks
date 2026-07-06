@@ -170,12 +170,30 @@ async def scheduler_loop(jobs: list[Job], tick_seconds: int | None = None) -> No
 
 def build_jobs() -> list[Job]:
     """Build the registered background jobs for this process."""
-    if config.DAILY_JOB_HOUR_UTC < 0:
-        return []
-    return [
-        Job(
-            name="daily_portfolio",
-            run=run_daily_jobs,
-            at_hour_utc=config.DAILY_JOB_HOUR_UTC,
+    registry: list[Job] = []
+    if config.DAILY_JOB_HOUR_UTC >= 0:
+        registry.append(
+            Job(
+                name="daily_portfolio",
+                run=run_daily_jobs,
+                at_hour_utc=config.DAILY_JOB_HOUR_UTC,
+            )
         )
-    ]
+    if config.ALERTS_ENABLED and config.DISCORD_WEBHOOK_URL:
+        from .alerts import run_earnings_alerts, run_price_alerts
+
+        registry.extend(
+            [
+                Job(
+                    name="price_alerts",
+                    run=run_price_alerts,
+                    at_hour_utc=config.ALERTS_HOUR_UTC,
+                ),
+                Job(
+                    name="earnings_alerts",
+                    run=run_earnings_alerts,
+                    at_hour_utc=config.ALERTS_HOUR_UTC,
+                ),
+            ]
+        )
+    return registry

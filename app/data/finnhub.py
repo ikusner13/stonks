@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import logging
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 
@@ -10,6 +11,8 @@ from ..config import FINNHUB_API_KEY
 from ..schemas import NewsItem, Quote
 
 BASE = "https://finnhub.io/api/v1"
+logger = logging.getLogger(__name__)
+_earnings_plan_warning_logged = False
 
 
 async def fetch_quote(symbol: str) -> Quote | None:
@@ -31,6 +34,33 @@ async def fetch_quote(symbol: str) -> Quote | None:
         change=float(data.get("d") or 0.0),
         change_percent=float(data.get("dp") or 0.0),
     )
+
+
+async def fetch_earnings_calendar(
+    symbol: str, from_date: date, to_date: date
+) -> list[dict] | None:
+    """Fetch Finnhub earnings-calendar entries for one symbol."""
+    global _earnings_plan_warning_logged
+    if not FINNHUB_API_KEY:
+        return None
+    async with httpx.AsyncClient(timeout=10) as client:
+        res = await client.get(
+            f"{BASE}/calendar/earnings",
+            params={
+                "from": from_date.isoformat(),
+                "to": to_date.isoformat(),
+                "symbol": symbol,
+                "token": FINNHUB_API_KEY,
+            },
+        )
+    if res.status_code == 403 and not _earnings_plan_warning_logged:
+        logger.warning("Finnhub earnings calendar is unavailable on this plan")
+        _earnings_plan_warning_logged = True
+    if res.status_code != 200:
+        return None
+    data = res.json()
+    entries = data.get("earningsCalendar", [])
+    return entries if isinstance(entries, list) else []
 
 
 async def fetch_news(symbol: str) -> list[NewsItem]:

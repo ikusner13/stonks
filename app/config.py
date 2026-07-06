@@ -28,6 +28,10 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 DAILY_JOB_HOUR_UTC = int(os.getenv("DAILY_JOB_HOUR_UTC", "21"))
 SCHEDULER_TICK_SECONDS = int(os.getenv("SCHEDULER_TICK_SECONDS", "300"))
 DRIFT_ALERT_ENABLED = os.getenv("DRIFT_ALERT_ENABLED", "1") == "1"
+ALERTS_ENABLED = os.getenv("ALERTS_ENABLED", "1") == "1"
+ALERTS_HOUR_UTC = int(os.getenv("ALERTS_HOUR_UTC", "21"))
+PRICE_MOVE_ALERT_PCT = float(os.getenv("PRICE_MOVE_ALERT_PCT", "5"))
+EARNINGS_ALERT_DAYS = int(os.getenv("EARNINGS_ALERT_DAYS", "7"))
 
 # SQLite store for the server-side watchlist / positions.
 DB_PATH = Path(os.getenv("STOCKS_DB_PATH", ROOT / "stocks.db"))
