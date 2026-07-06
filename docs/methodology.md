@@ -475,10 +475,20 @@ drift = current_weight - target_weight
 
 Held symbols with no target row are listed in `untargeted` and excluded from
 trade suggestions; this distinction matters because an explicit `0%` target
-does produce a sell suggestion. If
-`abs(drift) <= DRIFT_THRESHOLD + 1e-12` (with `DRIFT_THRESHOLD` currently 5%,
-imported from `decision_support.py`), the item is a hold and `delta_usd = 0.0`.
-Otherwise:
+does produce a sell suggestion. The rebalance gate uses the same dual drift
+band as optimizer drift: an item is actionable if either absolute drift is more
+than `DRIFT_THRESHOLD` (currently 5 percentage points) or, for a nonzero
+target, relative drift is more than `RELATIVE_DRIFT_THRESHOLD` (currently 20%
+of target):
+
+```
+abs(drift) > DRIFT_THRESHOLD
+or (target_weight > 0 and abs(drift) / target_weight > RELATIVE_DRIFT_THRESHOLD)
+```
+
+Because both comparisons are strict, an exact 5-point absolute drift remains a
+hold unless the relative 20%-of-target band is also crossed. Hold items have
+`delta_usd = 0.0`. Otherwise:
 
 ```
 delta_usd = round((target_weight - current_weight) * base_value, 2)
@@ -570,13 +580,21 @@ points respectively.
 skipped unless both `DRIFT_ALERT_ENABLED` is true and `DISCORD_WEBHOOK_URL` is
 non-empty.
 
-When alerts are enabled, the job builds
-`plan_rebalance(valuation, list_targets())`, keeps only items where
-`action != "hold"`, and skips when that actionable list is empty. Dedupe is the
-SQLite setting `last_drift_alert`; the stored value is parsed by splitting on
-the first colon and interpreting the suffix as a comma-separated symbol set.
-If that stored symbol set equals the current actionable symbol set, the alert is
-skipped regardless of the stored date. Otherwise the new setting value is:
+When alerts are enabled, the job loads targets once, builds
+`plan_rebalance(valuation, targets)`, keeps only items where `action != "hold"`,
+and skips when that actionable list is empty. If the valuation has cash on hand,
+it also attempts `plan_contribution(valuation, targets, valuation.cash)` and,
+when that contribution plan has items, appends a cash-first line listing the
+largest buy targets that cash can cover before any selling. The listed symbols
+are capped at five, with `+N more` for the remainder. If contribution planning
+raises, the exception is logged and the rebalance alert is still sent without
+the cash-first line.
+
+Dedupe is the SQLite setting `last_drift_alert`; the stored value is parsed by
+splitting on the first colon and interpreting the suffix as a comma-separated
+symbol set. If that stored symbol set equals the current actionable symbol set,
+the alert is skipped regardless of the stored date. Otherwise the new setting
+value is:
 
 ```
 today = datetime.now(UTC).date().isoformat()
@@ -640,9 +658,11 @@ sample mean × 252 and sample covariance × 252 — no shrinkage).
 
 **Drift** (`app/portfolio/decision_support.py::analyze_drift`). Per symbol,
 `drift = current_weight − optimizer_target_weight`; `significant` if
-`abs(drift) > 0.05` (5 percentage points), sorted by largest absolute drift
-first. Returns `None` entirely if there's no current allocation to compare
-(e.g. holdings carry no value/shares).
+`abs(drift) > 0.05` (5 percentage points) or, for a nonzero target,
+`abs(drift) / optimizer_target_weight > 0.20` (20% of target). A zero target
+uses only the absolute band, so there is no division by zero. Items are sorted
+by largest absolute drift first. Returns `None` entirely if there's no current
+allocation to compare (e.g. holdings carry no value/shares).
 
 **Correlation** (`app/portfolio/decision_support.py::analyze_correlation`,
 `compute_correlation_insight`). Return history for all symbols is fetched and

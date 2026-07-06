@@ -40,7 +40,7 @@
           <td class="py-3 pr-4 text-right tabular-nums">{{ item.current_weight | pct }}</td>
           <td class="py-3 pr-4 text-right tabular-nums">{{ item.target_weight | pct }}</td>
           <td class="py-3 pr-4 text-right tabular-nums">{{ item.after_weight | pct }}</td>
-          <td class="py-3 pr-4 text-right tabular-nums {% if item.drift > plan.threshold %}text-amber-500{% elif item.drift < -plan.threshold %}text-sky-500{% endif %}">
+          <td class="py-3 pr-4 text-right tabular-nums {% if item.action != 'hold' and item.drift > 0 %}text-amber-500{% elif item.action != 'hold' and item.drift < 0 %}text-sky-500{% endif %}">
             {{ '+' if item.drift >= 0 else '' }}{{ item.drift | pct }}
           </td>
           <td class="py-3 pr-4 text-right font-semibold uppercase">{{ item.action }}</td>
@@ -57,7 +57,7 @@
   </div>
 
   <div class="mt-4 space-y-2 text-xs text-[var(--sea-ink-soft)]">
-    <p>Implicit cash target: <span class="font-semibold">{{ plan.cash_target_weight | pct }}</span>. Trades are held when drift is within {{ plan.threshold | pct }}.</p>
+    <p>Implicit cash target: <span class="font-semibold">{{ plan.cash_target_weight | pct }}</span>. Trades are held until drift exceeds {{ plan.threshold | pct }} absolute or {{ plan.relative_threshold | pct }} of a nonzero target.</p>
     {% if plan.untargeted %}
     <p>Untargeted holdings excluded from trades: {{ plan.untargeted | join(", ") }}.</p>
     {% endif %}

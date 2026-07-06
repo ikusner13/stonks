@@ -2,7 +2,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import config, db
+from app.portfolio.decision_support import analyze_drift
 from app.portfolio.holdings import HoldingValuation, PortfolioValuation
+from app.portfolio.optimize import OptimizeResult, PortfolioMetrics
 from app.portfolio.plan import (
     ContributionPlan,
     Target,
@@ -94,7 +96,7 @@ def test_plan_rebalance_math_and_edge_cases():
     assert plan is not None
     assert plan.base_value == 500
     assert plan.cash_now == 100
-    assert plan.cash_after == 100
+    assert plan.cash_after == 125
     assert plan.cash_target_weight == pytest.approx(0.45)
     assert plan.untargeted == ["UNT", "UNP"]
 
@@ -107,9 +109,9 @@ def test_plan_rebalance_math_and_edge_cases():
     assert by_symbol["AAA"].after_weight == pytest.approx(0.30)
 
     assert by_symbol["BBB"].drift == pytest.approx(0.05)
-    assert by_symbol["BBB"].action == "hold"
-    assert by_symbol["BBB"].delta_usd == 0
-    assert by_symbol["BBB"].after_weight == pytest.approx(by_symbol["BBB"].current_weight)
+    assert by_symbol["BBB"].action == "sell"
+    assert by_symbol["BBB"].delta_usd == -25
+    assert by_symbol["BBB"].after_weight == pytest.approx(0.15)
 
     assert by_symbol["ZERO"].target_weight == 0
     assert by_symbol["ZERO"].action == "sell"
@@ -127,6 +129,98 @@ def test_plan_rebalance_math_and_edge_cases():
     assert drifts == sorted(drifts, reverse=True)
     assert plan.items[0].symbol == "ZERO"
     assert plan.items[-1].symbol == "BBB"
+
+
+def test_plan_rebalance_uses_dual_drift_bands():
+    valuation = PortfolioValuation(
+        holdings=[
+            _holding("SMALL", market_value=520),
+            _holding("CORE", market_value=4_400),
+            _holding("ABS", market_value=4_600),
+        ],
+        total_value=9_520,
+        total_cost=0,
+        total_unrealized_pl=0,
+        total_unrealized_pl_pct=0,
+        asof="2026-07-05T00:00:00+00:00",
+        cash=480,
+        total_with_cash=10_000,
+        cash_pct=0.048,
+    )
+    targets = [
+        Target(symbol="SMALL", target_weight=0.04),
+        Target(symbol="CORE", target_weight=0.40),
+        Target(symbol="ABS", target_weight=0.40),
+    ]
+
+    plan = plan_rebalance(valuation, targets)
+
+    assert plan is not None
+    assert plan.threshold == pytest.approx(0.05)
+    assert plan.relative_threshold == pytest.approx(0.20)
+    by_symbol = {item.symbol: item for item in plan.items}
+    assert by_symbol["SMALL"].drift == pytest.approx(0.012)
+    assert by_symbol["SMALL"].action == "sell"
+    assert by_symbol["CORE"].drift == pytest.approx(0.04)
+    assert by_symbol["CORE"].action == "hold"
+    assert by_symbol["ABS"].drift == pytest.approx(0.06)
+    assert by_symbol["ABS"].action == "sell"
+
+
+def test_plan_rebalance_holds_exact_absolute_boundary_when_relative_band_does_not_trip():
+    valuation = PortfolioValuation(
+        holdings=[_holding("CORE", market_value=4_500)],
+        total_value=4_500,
+        total_cost=0,
+        total_unrealized_pl=0,
+        total_unrealized_pl_pct=0,
+        asof="2026-07-05T00:00:00+00:00",
+        cash=5_500,
+        total_with_cash=10_000,
+        cash_pct=0.55,
+    )
+
+    plan = plan_rebalance(valuation, [Target(symbol="CORE", target_weight=0.40)])
+
+    assert plan is not None
+    item = plan.items[0]
+    assert item.drift == pytest.approx(0.05)
+    assert item.action == "hold"
+
+
+def test_analyze_drift_uses_relative_band_and_zero_target_only_gets_absolute_band():
+    result = OptimizeResult(
+        asof="2026-07-05T00:00:00+00:00",
+        objective="max_sharpe",
+        lookback_days=730,
+        symbols=["SMALL", "CORE", "ABS", "ZERO"],
+        optimal=PortfolioMetrics(
+            weights={"SMALL": 0.04, "CORE": 0.40, "ABS": 0.40},
+            expected_return=0,
+            volatility=0,
+            sharpe=0,
+        ),
+        current=PortfolioMetrics(
+            weights={"SMALL": 0.052, "CORE": 0.44, "ABS": 0.46, "ZERO": 0.04},
+            expected_return=0,
+            volatility=0,
+            sharpe=0,
+        ),
+    )
+
+    drift = analyze_drift(result)
+
+    assert drift is not None
+    assert drift.threshold_pct == pytest.approx(0.05)
+    assert drift.relative_threshold_pct == pytest.approx(0.20)
+    by_symbol = {item.symbol: item for item in drift.items}
+    assert by_symbol["SMALL"].significant is True
+    assert "Overweight by 1.2 pts" in by_symbol["SMALL"].suggestion
+    assert "30% of its 4% target" in by_symbol["SMALL"].suggestion
+    assert by_symbol["CORE"].significant is False
+    assert by_symbol["ABS"].significant is True
+    assert by_symbol["ZERO"].target_weight == 0
+    assert by_symbol["ZERO"].significant is False
 
 
 def test_plan_rebalance_returns_none_without_base_or_targets():

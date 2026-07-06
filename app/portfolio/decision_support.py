@@ -31,8 +31,9 @@ DISCLAIMER = (
 )
 
 # A position whose live weight differs from the optimizer's target by more than
-# this is flagged as "drifted" and worth a second look.
+# either band is flagged as "drifted" and worth a second look.
 DRIFT_THRESHOLD = 0.05
+RELATIVE_DRIFT_THRESHOLD = 0.20
 
 # Two holdings whose daily returns correlate above this are treated as moving
 # "together" — a source of hidden concentration the per-name view can't see.
@@ -41,6 +42,21 @@ HIGH_CORRELATION = 0.80
 # Correlation over a multi-year lookback is stable for a trading day; the cache
 # key already pins symbols + lookback + day, so a one-day TTL is plenty.
 CORRELATION_TTL_MS = 24 * 60 * 60_000
+
+
+def drift_is_significant(drift: float, target: float) -> bool:
+    """Dual band: >5 absolute pts, or >20% of a nonzero target weight."""
+    if abs(drift) > DRIFT_THRESHOLD:
+        return True
+    return target > 0 and abs(drift) / target > RELATIVE_DRIFT_THRESHOLD
+
+
+def _format_points(weight: float) -> str:
+    points = abs(weight) * 100
+    rounded = round(points, 1)
+    if rounded.is_integer():
+        return f"{rounded:.0f}"
+    return f"{rounded:.1f}"
 
 
 # --- 1) Portfolio health ----------------------------------------------------
@@ -121,7 +137,7 @@ class DriftItem(BaseModel):
     target_weight: float
     drift: float  # current - target (positive = overweight vs target)
     direction: str  # "over" | "under"
-    significant: bool  # |drift| > DRIFT_THRESHOLD
+    significant: bool  # dual band: abs drift or relative drift vs target
     suggestion: str
 
 
@@ -129,6 +145,7 @@ class DriftAnalysis(BaseModel):
     items: list[DriftItem]
     significant_count: int
     threshold_pct: float = DRIFT_THRESHOLD
+    relative_threshold_pct: float = RELATIVE_DRIFT_THRESHOLD
 
 
 def analyze_drift(result: OptimizeResult) -> DriftAnalysis | None:
@@ -150,18 +167,34 @@ def analyze_drift(result: OptimizeResult) -> DriftAnalysis | None:
         tgt = target.get(sym, 0.0)
         drift = cur - tgt
         direction = "over" if drift >= 0 else "under"
-        significant = abs(drift) > DRIFT_THRESHOLD
+        significant = drift_is_significant(drift, tgt)
+        relative_triggered = (
+            significant
+            and abs(drift) <= DRIFT_THRESHOLD
+            and tgt > 0
+            and abs(drift) / tgt > RELATIVE_DRIFT_THRESHOLD
+        )
 
         if not significant:
             suggestion = "Close to target — no action needed."
         elif direction == "over":
+            relative_context = (
+                f" ({abs(drift) / tgt:.0%} of its {tgt:.0%} target)"
+                if relative_triggered
+                else ""
+            )
             suggestion = (
-                f"Overweight by {abs(drift) * 100:.0f} pts. Consider trimming "
+                f"Overweight by {_format_points(drift)} pts{relative_context}. Consider trimming "
                 f"{sym} to move closer to the suggested allocation."
             )
         else:
+            relative_context = (
+                f" ({abs(drift) / tgt:.0%} of its {tgt:.0%} target)"
+                if relative_triggered
+                else ""
+            )
             suggestion = (
-                f"Underweight by {abs(drift) * 100:.0f} pts. Consider adding "
+                f"Underweight by {_format_points(drift)} pts{relative_context}. Consider adding "
                 f"to {sym} to move closer to the suggested allocation."
             )
 
