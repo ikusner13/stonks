@@ -149,7 +149,7 @@ async def run_price_alerts() -> dict:
     today = datetime.now(UTC).date().isoformat()
     await _refresh_ranges(symbols, today)
 
-    pending: list[tuple[str, str, str]] = []
+    pending: list[tuple[str, str, str, tuple[str, float | None, float | None] | None]] = []
     for idx, symbol in enumerate(symbols):
         if idx:
             await asyncio.sleep(0.1)
@@ -163,7 +163,7 @@ async def run_price_alerts() -> dict:
 
         move_key = f"{symbol}:{today}"
         if abs(quote.change_percent) >= config.PRICE_MOVE_ALERT_PCT:
-            pending.append(("price_move", move_key, _price_move_line(symbol, quote)))
+            pending.append(("price_move", move_key, _price_move_line(symbol, quote), None))
 
         stored = _stored_range(symbol)
         if stored is None:
@@ -175,30 +175,37 @@ async def run_price_alerts() -> dict:
                     "range_high",
                     move_key,
                     f"{symbol} new 52-week high {_money(quote.price)} (prev {_money(high)})",
+                    (symbol, quote.price, None),
                 )
             )
-            _update_range_bound(symbol, high=quote.price)
         elif quote.price < low:
             pending.append(
                 (
                     "range_low",
                     move_key,
                     f"{symbol} new 52-week low {_money(quote.price)} (prev {_money(low)})",
+                    (symbol, None, quote.price),
                 )
             )
-            _update_range_bound(symbol, low=quote.price)
 
-    unsent = [(kind, key, line) for kind, key, line in pending if not already_sent(kind, key)]
+    unsent = [
+        (kind, key, line, range_update)
+        for kind, key, line, range_update in pending
+        if not already_sent(kind, key)
+    ]
     if not unsent:
         return {"alerts": 0}
 
     try:
-        await post_discord("\n".join(line for _kind, _key, line in unsent))
+        await post_discord("\n".join(line for _kind, _key, line, _range_update in unsent))
     except Exception:
         logger.exception("price alerts Discord post failed")
         return {"alerts": 0}
 
-    for kind, key, _line in unsent:
+    for kind, key, _line, range_update in unsent:
+        if range_update is not None:
+            symbol, high, low = range_update
+            _update_range_bound(symbol, high=high, low=low)
         mark_sent(kind, key)
     return {"alerts": len(unsent)}
 

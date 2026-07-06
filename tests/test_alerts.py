@@ -226,6 +226,47 @@ async def test_webhook_failure_does_not_mark_sent_and_next_run_resends(
     ]
 
 
+async def test_range_webhook_failure_keeps_range_unchanged_and_next_run_realerts(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    db.add("AAPL")
+    posts: list[str] = []
+    fail = True
+
+    monkeypatch.setattr(
+        alerts,
+        "fetch_price_history",
+        lambda _symbols, _lookback_days: (pd.DataFrame({"AAPL": [90.0, 100.0]}), []),
+    )
+
+    async def fetch_quote(_symbol: str) -> Quote | None:
+        return _quote(110.0, 1.0)
+
+    async def post_discord(message: str) -> None:
+        nonlocal fail
+        posts.append(message)
+        if fail:
+            fail = False
+            raise RuntimeError("webhook down")
+
+    monkeypatch.setattr(alerts, "fetch_quote", fetch_quote)
+    monkeypatch.setattr(alerts, "post_discord", post_discord)
+
+    first = await alerts.run_price_alerts()
+
+    assert first == {"alerts": 0}
+    assert _range_row("AAPL") == (100.0, 90.0)
+
+    second = await alerts.run_price_alerts()
+
+    assert second == {"alerts": 1}
+    assert posts == [
+        "AAPL new 52-week high $110.00 (prev $100.00)",
+        "AAPL new 52-week high $110.00 (prev $100.00)",
+    ]
+    assert _range_row("AAPL") == (110.0, 90.0)
+
+
 async def test_earnings_alerts_inside_window_once_and_ignores_outside(
     monkeypatch: pytest.MonkeyPatch,
 ):
