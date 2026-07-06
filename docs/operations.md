@@ -4,7 +4,7 @@
 
 | Var | Required? | Effect | Failure mode when absent |
 | --- | --- | --- | --- |
-| `OPENROUTER_API_KEY` | **Required** for research/discover | Auth for every LLM call (research, critic, discovery) via OpenRouter. | The web app starts anyway (`LLM_CONFIGURED=False` logs a startup warning and is passed to templates to show a disabled state). The first LLM call raises `RuntimeError("OPENROUTER_API_KEY is not set...")` lazily — web routes catch it as a generic exception and show an error partial; the CLI has no such guard and will print the raw traceback. |
+| `OPENROUTER_API_KEY` | **Required** for research/discover | Auth for every LLM call (research, critic, discovery) via OpenRouter. | The API starts anyway (`LLM_CONFIGURED=False`). The first LLM call raises `RuntimeError("OPENROUTER_API_KEY is not set...")` lazily — API routes return the standard JSON error envelope; the CLI has no such guard and will print the raw traceback. |
 | `DAILY_LLM_BUDGET_USD` | Optional (default `5`; `0` disables) | Stops new paid LLM runs once today's UTC `usage.jsonl` spend is at or above this amount. | Cached research reports still load because the guard only runs inside cache misses. Uncached research and discovery show a budget error in the web app; CLI commands raise the same guard exception. |
 | `DISCORD_WEBHOOK_URL` | Optional (default empty) | Enables Discord alert posts when their feature flags are enabled. | Empty means Discord alerts are disabled; snapshots and backups still run. |
 | `DAILY_JOB_HOUR_UTC` | Optional (default `21`) | UTC hour for the in-process daily portfolio job; `21` runs after the regular US market close. Set `<0` to disable the loop, primarily for tests. | Uses the default hour. If disabled, no automatic snapshot or alert runs until the app is restarted with a non-negative hour. |
@@ -135,11 +135,11 @@ and retries on the next tick.
 
 ## Portfolio visuals
 
-Portfolio charts are server-rendered SVG/CSS, not client-side chart libraries.
-The allocation donut is computed from priced holdings by market value plus a
-cash slice when cash is positive; unpriced holdings are excluded and named
-under the legend. The NAV panel needs at least two stored daily snapshots before
-it can draw its filled area chart.
+Portfolio charts are rendered by the React SPA from JSON API data. Allocation
+data comes from priced holdings by market value plus a cash slice when cash is
+positive; unpriced holdings are excluded from allocation values. The NAV API
+needs at least two stored daily snapshots before the frontend can draw a useful
+history chart.
 
 The correlation heatmap depends on the `correlation` cache. If a cached
 correlation insight was created before matrix support was added, the narrative

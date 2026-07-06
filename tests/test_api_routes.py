@@ -318,7 +318,7 @@ def test_targets_rebalance_whatif_and_pct_conversion(client: TestClient):
     assert invalid.json()["detail"]["message"] == "Contribution amount must be a positive number."
 
 
-def test_nav_correlation_regime_tax_performance_twr_and_tearsheet(
+def test_nav_correlation_regime_tax_performance_twr(
     monkeypatch: pytest.MonkeyPatch,
     client: TestClient,
 ):
@@ -417,10 +417,22 @@ def test_nav_correlation_regime_tax_performance_twr_and_tearsheet(
     assert twr.status_code == 200
     assert twr.json()["benchmark"] == "SPY"
 
+
+def test_portfolio_tearsheet_returns_html(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+):
+    async def fake_value_holdings() -> PortfolioValuation:
+        return _valuation()
+
+    monkeypatch.setattr(api, "value_holdings", fake_value_holdings)
     monkeypatch.setattr(api, "tearsheet_html", lambda weights: "<html>tear</html>")
-    tearsheet = client.get("/api/portfolio/tearsheet")
-    assert tearsheet.status_code == 200
-    assert "tear" in tearsheet.text
+
+    response = client.get("/api/portfolio/tearsheet")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "tear" in response.text
 
 
 def test_optimize_happy_path_empty_store_and_broker_sync(

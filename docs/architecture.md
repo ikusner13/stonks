@@ -58,12 +58,18 @@ account-level positions, balances, and activities into local Pydantic models.
 orchestrates fetch, ledger-only activity import, holdings/cash mirror, and the
 `last_broker_sync` setting; failures raise so the scheduler retries later.
 
-**`app/web/`** — The FastAPI app (`app.py`), Jinja2 templates, static assets,
-and pure SVG/color helpers in `charts.py`. Owns no domain logic — every route
-is a thin composition of calls into `data`/`llm`/`indicators`/`portfolio`, plus
-the Jinja2 numeric-formatting filters (`fmt_num`, `fmt_cap`, `pct`) and
-server-computed chart models for templates to render. Imports nearly everything
-else in `app/`.
+**`app/web/`** — The FastAPI JSON API. `app.py` owns the application shell,
+lifespan scheduler startup/shutdown, DB/table initialization, exception-handler
+registration, and inclusion of `api.py`'s `/api` router. `api.py` owns the SPA
+contract: Pydantic request/response models and thin route composition over
+`data`/`llm`/`indicators`/`portfolio`. It returns raw JSON data for the React
+frontend to render and does not own domain logic.
+
+**`frontend/`** — The React SPA (Vite + TanStack tooling) deployed as static
+assets on a Cloudflare Worker at `stonks.ikusner.dev`. The Worker proxies
+`/api/*` to `stonks-api.ikusner.dev` with a Cloudflare Access service token;
+that API hostname terminates at Cloudflare Tunnel and then the FastAPI JSON API
+on the VPS.
 
 **`app/jobs.py`** — The in-process background job registry and tick scheduler
 started from the FastAPI lifespan. It stores per-job `last_run:*` ledger values
@@ -112,7 +118,7 @@ forward references those imports satisfy.
 
 ## Request traces
 
-### (a) `GET /research/{symbol}/report`
+### (a) `GET /api/research/{symbol}`
 
 1. `mode` normalizes to `"cheap"` or `"thorough"` (anything else defaults to
    thorough). A `with_run("research", sym, mode)` context opens — usage
@@ -145,85 +151,56 @@ forward references those imports satisfy.
 5. `suggest_position_size` computes a sizing band from the effective
    confidence, `valuation.total_with_cash` (holdings value plus recorded cash),
    and the symbol's current securities-only weight when already held.
-6. Renders `partials/research_report.html` with the result, mode, watchlist
-   state, and sizing guidance.
-7. `InsufficientDataError` → a "no market data found" error partial.
-   Any other exception → logged full traceback server-side, generic error
-   partial with a retry link that echoes the *original* request's `mode` and
-   `fresh` values — it is not forced to `fresh=1`; a request made without
-   `fresh` retries the same, cache-eligible way.
+6. Returns `ResearchResponse` JSON with the full computed `ResearchResult`,
+   position-sizing guidance, watchlist state, profile label, and effective
+   confidence. The React SPA decides how to render those fields.
+7. `InsufficientDataError` → `404` with `{"detail":{"code":"insufficient_data",
+   "message":"..."}}`. Budget exhaustion → `429` with `code:
+   "budget_exceeded"`. Other failures are logged with traceback and returned as
+   `500` JSON using `code: "internal"`.
 
-### (b) The portfolio page and its HTMX panels
+### (b) Portfolio API endpoints
 
-`GET /portfolio` renders the page shell synchronously: `value_holdings()`
-(always recomputed — though each holding's price is subject to the 15-minute
-`data` cache, so this isn't a guaranteed-fresh network fetch), opportunistically
-records a daily NAV snapshot from that valuation, `assess_portfolio_health`
-computed inline from that valuation, the allocation donut slices from priced
-holdings plus cash, and the holdings table — all present in the initial HTML.
-Snapshot writes are wrapped in `try/except` with a warning log, so history
-storage can never break page rendering. The remaining panels and forms are
-then loaded or submitted independently; the daily job can also record that
-UTC day's NAV without a page visit:
+The React SPA loads portfolio state from independent JSON endpoints under
+`/api/portfolio*`. `GET /api/portfolio` recomputes `value_holdings()` (each
+holding price is still subject to the 15-minute `data` cache),
+opportunistically records a daily NAV snapshot, computes portfolio health, raw
+allocation slices, optimizer seed rows, broker-sync state, and the decision
+support disclaimer. Snapshot writes are wrapped in `try/except` with a warning
+log, so history storage cannot break the portfolio response. The daily job can
+also record that UTC day's NAV without a page visit.
 
-- **A) Holdings and cash** — rendered inline on page load (no HTMX round-trip
-  needed for the initial view). SnapTrade broker sync is the source of truth for
-  local holdings and cash. The broker sync button emits `holdings-changed`, and
-  the wrapping holder refreshes from `GET /portfolio/holdings` without reloading
-  the page.
-- **B) Health & correlation** — health and the allocation donut are computed
-  inline (part of the initial page render, no fetch of their own). Correlation
-  is lazy:
-  `hx-get="/portfolio/correlation" hx-trigger="load"` fires immediately after
-  page load. The route recomputes live valuation to order symbols by portfolio
-  weight descending, calls `compute_correlation_insight` (its own
-  `correlation` cache described in the caching table), and swaps in
-  `partials/portfolio_correlation.html`, which renders the narrative, high
-  pairs, and a matrix heatmap when the cached insight includes one.
-- **C) NAV history** — lazy-loaded on `hx-trigger="load"`:
-  `GET /portfolio/nav` reads the last 365 daily snapshots from SQLite, computes
-  deltas against the previous and first snapshots via `build_nav_series()`,
-  then the web route calls `nav_area(series.points)` to build a `NavChart`
-  containing a `600x120` polyline, closed area-fill path, first-value baseline,
-  and first/last/min/max labels for `partials/nav_history.html`. It also
-  recomputes current valuation and `ReturnsSummary` so the NAV panel can show
-  the money-weighted return badge. With fewer than two points, no chart is
-  produced.
-- **D) Allocation backtest** — also lazy-loaded on `hx-trigger="load"`:
-  `GET /portfolio/performance` recomputes `value_holdings()` again (independent
-  of the page-load call, same 15-minute price-cache caveat) and calls
-  `compute_performance` with the resulting weights. The rendered partial links
-  to `GET /portfolio/tearsheet`, which recomputes those live weights and
-  returns the `quantstats_lumi` HTML tearsheet, or a short HTML message when
-  there are no holdings, no priced weights, or insufficient history.
-- **E) Target allocations & rebalance** — `GET /portfolio/targets` lazy-loads
-  the editable target-weight form, including held symbols that do not yet have
-  target rows and the implicit cash target. `POST /portfolio/targets` fully
-  replaces the stored target rows after validation and emits `HX-Trigger:
-  targets-changed`. `POST /portfolio/targets/adopt` uses optimizer weights as
-  targets. `GET /portfolio/rebalance` listens for page load and that trigger,
-  recomputes `value_holdings()`, and calls `plan_rebalance()` using
-  `total_with_cash` as the base. Its partial includes a contribution what-if
-  form; `POST /portfolio/whatif` validates a positive amount, recomputes the
-  same valuation/targets, and renders the buy-only `plan_contribution()` result.
-- **F) Optimizer & drift** — the only panel that isn't `hx-trigger="load"`; it
-  fires on form submit (`POST /portfolio/optimize`) with only the selected
-  objective and seeds from synced current holdings. `optimize()` runs in a
-  worker thread (`anyio.to_thread.run_sync`, since `skfolio`/`numpy` there are
-  synchronous and CPU-bound), then `analyze_drift` compares the result's
-  current-vs-optimal weights and `frontier_chart()` maps the efficient frontier
-  plus current/optimal markers into SVG coordinates before rendering
-  `partials/portfolio_results.html`.
-- **G) Transactions** — lazy-loaded on `hx-trigger="load, txns-changed from:body"`:
-  `GET /portfolio/transactions` computes current valuation, `ReturnsSummary`,
-  and the last 20 broker-imported ledger rows. Transaction state is mirrored by
-  SnapTrade sync; the portfolio page does not expose manual transaction entry,
-  import, or deletion controls.
+- **Holdings and cash** — `GET /api/portfolio/holdings` returns live valuation.
+  `POST /api/portfolio/broker/sync` runs SnapTrade sync, mirrors holdings/cash,
+  and returns the sync diff plus last-sync state.
+- **Transactions** — `GET /api/portfolio/transactions` computes current
+  valuation, `ReturnsSummary`, and the last 20 broker-imported ledger rows.
+- **Targets and rebalance** — `GET /api/portfolio/targets` returns saved target
+  rows, held symbols without targets, and the implicit cash weight. `PUT
+  /api/portfolio/targets` fully replaces target rows after validation.
+  `GET /api/portfolio/rebalance` recomputes valuation and calls
+  `plan_rebalance()`. `POST /api/portfolio/whatif` validates a positive amount
+  and returns the buy-only `plan_contribution()` result.
+- **NAV and returns** — `GET /api/portfolio/nav` reads recent daily snapshots,
+  builds `NavSeries`, recomputes current valuation, and includes
+  `ReturnsSummary` for the same payload. Chart geometry is a frontend concern.
+- **Correlation and regime** — `GET /api/portfolio/correlation` orders symbols
+  by current portfolio weight, calls `compute_correlation_insight` when at
+  least two holdings exist, and returns the raw insight including matrix data.
+  `GET /api/portfolio/regime` returns the volatility regime signal from current
+  weights.
+- **Performance and TWR** — `GET /api/portfolio/performance` computes allocation
+  backtest metrics from current weights and returns `BACKTEST_CAVEAT`.
+  `GET /api/portfolio/twr` returns the time-weighted return summary.
+- **Tax and optimizer** — `GET /api/portfolio/tax` returns deterministic tax
+  signals over current valuation and ledger history. `POST
+  /api/portfolio/optimize` accepts holdings/objective JSON, excludes illiquid
+  micro-caps from mean-variance optimization, runs `optimize()` in a worker
+  thread, and returns optimizer output plus deterministic drift analysis.
 
-The independent portfolio panel routes wrap their real work in try/except where
-generic failures are expected, logging the full traceback and returning
-`partials/error.html` with a retry URL where retrying makes sense — a failed
-panel never takes down the rest of the page.
+Portfolio API routes log full tracebacks for unexpected failures and return the
+standard JSON error envelope, so the SPA can handle panel-level failures without
+the API returning HTML.
 
 ### (c) Background jobs
 
@@ -312,30 +289,22 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
 | `settings` | `app/db.py` | Single-user key/value settings, currently including recorded cash and the drift-alert dedupe key. |
 | `holdings` | `app/portfolio/holdings.py` | Current position rows keyed by symbol: shares and optional average cost. |
 | `targets` | `app/portfolio/plan.py` | User-owned target allocation rows keyed by symbol; weights are stored as fractions. |
-| `nav_snapshots` | `app/portfolio/snapshots.py` | One NAV row per UTC day from a portfolio page visit or daily job: securities value, cash, total NAV, cost, and unrealized P&L. |
+| `nav_snapshots` | `app/portfolio/snapshots.py` | One NAV row per UTC day from the portfolio API or daily job: securities value, cash, total NAV, cost, and unrealized P&L. |
 | `transactions` | `app/portfolio/transactions.py` | Broker-mirrored ledger rows: date, side, symbol, shares, price, amount, realized P/L, note, optional broker `external_id`, and creation timestamp. Broker-imported rows are ledger-only and deduped by `external_id`. |
 | `price_ranges` | `app/alerts.py` | Rolling 52-week high/low state per symbol, refreshed from price history and updated when live quotes break the stored range. |
 | `alerts_sent` | `app/alerts.py` | Shared idempotency ledger keyed by alert kind and deterministic `dedupe_key`; SEC filing alerts use accession numbers as globally unique keys, and webhook failures leave the ledger unwritten for retry. |
 
 ## Error-handling conventions
 
-- **Error partials over 500s.** Most web routes that do real work (research,
-  discover, transaction read, targets, rebalance,
-  NAV, correlation, performance, and tearsheet) catch expected or generic
-  failures and return a rendered
-  `partials/error.html` fragment — HTMX swaps this into the panel's target, so
-  the rest of the page stays intact. Generic failures in those routes log the
-  full traceback via `logger.exception`; validation-style failures return a
-  clear message without a stack trace. The user sees a short message ("X failed
-  — see server logs") and, where it makes sense, a retry link; never a raw stack
-  trace or a bare 500.
-  **`POST /portfolio/optimize` is the one exception to this pattern**: it
-  catches `NoDataError` and generic `Exception` separately, but neither branch
-  calls `logger.exception` (so a failure here leaves no server-side traceback),
-  and both render `partials/portfolio_results.html` with `available: False`
-  and a `reason` string built from the exception's own text (e.g.
-  `f"Optimization failed: {e}"`) — the raw exception message reaches the
-  browser directly, and there's no retry URL, unlike every other panel.
+- **JSON error envelope.** API routes return errors as
+  `{"detail":{"code":"...","message":"..."}}`. Expected validation failures use
+  `400` with `code: "invalid_input"`, LLM budget exhaustion uses `429` with
+  `code: "budget_exceeded"`, insufficient research data uses `404` with
+  `code: "insufficient_data"`, and unexpected API exceptions use `500` with
+  `code: "internal"` after logging the full traceback. `POST
+  /api/portfolio/optimize` keeps optimization failures in a successful
+  `OptimizeResponse` (`available: false`, `reason`, `warnings`) when the
+  optimizer itself cannot produce a portfolio.
 - **Source-status capture.** Every external fetch in `app/data/` is wrapped by
   `_capture`, which turns an exception into a safe fallback value plus an
   `error` status entry, rather than letting it propagate — so one dead source
@@ -352,21 +321,20 @@ All tables live in the single SQLite database at `STOCKS_DB_PATH` and use
 
 ## Concurrency rules
 
-- FastAPI route handlers are a mix of `def` and `async def`. Synchronous
-  handlers (`index`, `research_page`, `favicon`, `watchlist_page`,
-  `watchlist_toggle`, `watchlist_remove`, `portfolio_holdings_row`) are
-  dispatched to Starlette's worker threadpool automatically. Handlers that
-  call into async pipelines (`discover`, `research_report`, `portfolio_page`,
-  the holdings/correlation/performance/tearsheet/optimize routes) are
-  `async def` and run directly on the event loop.
+- FastAPI route handlers are a mix of `def` and `async def`. Lightweight
+  synchronous API handlers such as `GET /api/meta` and watchlist updates are
+  dispatched to Starlette's worker threadpool automatically. Handlers that call
+  into async pipelines or portfolio valuation (`discover`, `research`,
+  portfolio holdings/correlation/performance/optimize routes) are `async def`
+  and run directly on the event loop.
 - Blocking libraries are explicitly offloaded, but via two different
   mechanisms depending on where the call lives: `asyncio.to_thread(...)` inside
   `app/data/*`, `app/indicators/engine.py`, `app/portfolio/performance.py`
   (`compute_performance`), and `app/portfolio/decision_support.py`
   (`compute_correlation_insight`) — all the `yfinance`/`edgartools`/`fredapi`/
   `quantstats_lumi` calls — versus `anyio.to_thread.run_sync(...)` inside
-  `app/web/app.py` for `optimize()` and `tearsheet_html()`. Both correctly move
-  blocking work off the event loop; the two APIs are simply not unified.
+  `app/web/api.py` for `optimize()`. Both correctly move blocking work off the
+  event loop; the two APIs are simply not unified.
 - Pydantic AI's `agent.run()` calls are natively async (httpx under the hood)
   and need no thread offload.
 - **SQLite is connection-per-call, always synchronous, never offloaded to a

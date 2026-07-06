@@ -1,6 +1,0 @@
-{# Expects `sym` and `watched` in context. Swaps itself on toggle. #}
-<button
-  hx-post="/watchlist/toggle/{{ sym }}"
-  hx-swap="outerHTML"
-  class="btn btn-sm"
->{{ "Remove" if watched else "+ Watchlist" }}</button>

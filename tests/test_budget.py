@@ -7,6 +7,7 @@ from app import config
 from app.llm import budget, usage
 from app.llm.budget import BudgetExceededError
 from app.llm import pipeline
+from app.web import api
 from app.web import app as web_app
 
 
@@ -103,32 +104,32 @@ async def test_research_cache_hit_does_not_check_budget(monkeypatch):
     assert result.report.summary == "Cached summary."
 
 
-def test_research_budget_error_returns_error_partial(monkeypatch):
+def test_research_budget_error_returns_json(monkeypatch):
     async def fail(*args, **kwargs):
         raise BudgetExceededError(5.0, 5.0)
 
-    monkeypatch.setattr(web_app, "research_ticker_cached", fail)
+    monkeypatch.setattr(api, "research_ticker_cached", fail)
     client = TestClient(web_app.app)
 
-    response = client.get("/research/AAPL/report")
+    response = client.get("/api/research/AAPL")
 
-    assert response.status_code == 200
-    assert "error-panel" in response.text
-    assert "Daily LLM budget reached ($5.00 of $5.00)" in response.text
-    assert "Resets at midnight UTC; cached reports still load." in response.text
-    assert "Retry" not in response.text
+    assert response.status_code == 429
+    assert response.json()["detail"] == {
+        "code": "budget_exceeded",
+        "message": "Daily LLM budget reached ($5.00 of $5.00). "
+        "Resets at midnight UTC; cached reports still load.",
+    }
 
 
-def test_discover_budget_error_returns_error_partial(monkeypatch):
+def test_discover_budget_error_returns_json(monkeypatch):
     async def fail(*args, **kwargs):
         raise BudgetExceededError(5.0, 5.0)
 
-    monkeypatch.setattr(web_app, "discover_ideas", fail)
+    monkeypatch.setattr(api, "discover_ideas", fail)
     client = TestClient(web_app.app)
 
-    response = client.post("/discover", data={"goal": "small cap semis"})
+    response = client.post("/api/discover", json={"goal": "small cap semis"})
 
-    assert response.status_code == 200
-    assert "error-panel" in response.text
-    assert "Daily LLM budget reached ($5.00 of $5.00)" in response.text
-    assert "Retry" not in response.text
+    assert response.status_code == 429
+    assert response.json()["detail"]["code"] == "budget_exceeded"
+    assert response.json()["detail"]["message"].startswith("Daily LLM budget reached")

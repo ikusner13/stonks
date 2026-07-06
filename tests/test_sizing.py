@@ -2,7 +2,7 @@ import pytest
 
 from app.portfolio.decision_support import suggest_position_size
 from app.profiles.penny import PENNY
-from app.web.app import _effective_confidence
+from app.web.api import _effective_confidence
 
 
 def test_effective_confidence_uses_more_conservative_grade():

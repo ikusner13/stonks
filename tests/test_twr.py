@@ -5,6 +5,7 @@ from pytest import approx
 
 from app.portfolio.snapshots import NavSnapshot
 from app.portfolio.twr import TWRSummary, compute_twr
+from app.web import api
 from app.web import app as web_app
 
 
@@ -74,11 +75,10 @@ def test_compute_twr_rejects_invalid_or_insufficient_windows():
     assert compute_twr([_snapshot("2026-01-01", 100), _snapshot("2026-01-16", -1)], []) is None
 
 
-def test_twr_annualized_none_under_365_days(monkeypatch):
+def test_twr_annualized_none_under_365_days():
     start = date(2026, 1, 1)
     snapshots = [_snapshot(start.isoformat(), 100), _snapshot((start + timedelta(days=31)).isoformat(), 110)]
 
-    monkeypatch.setattr(web_app, "compute_twr_summary", lambda: None)
     result = compute_twr(snapshots, [])
 
     assert result is not None
@@ -88,7 +88,7 @@ def test_twr_annualized_none_under_365_days(monkeypatch):
     assert annualized is None
 
 
-def test_twr_partial_renders_summary(monkeypatch):
+def test_twr_api_returns_summary(monkeypatch):
     async def fake_compute_twr_summary():
         return TWRSummary(
             twr_cumulative=0.12,
@@ -102,13 +102,14 @@ def test_twr_partial_renders_summary(monkeypatch):
             note="TWR strips out deposit and withdrawal timing.",
         )
 
-    monkeypatch.setattr(web_app, "compute_twr_summary", fake_compute_twr_summary)
+    monkeypatch.setattr(api, "compute_twr_summary", fake_compute_twr_summary)
     client = TestClient(web_app.app)
 
-    response = client.get("/portfolio/twr")
+    response = client.get("/api/portfolio/twr")
 
     assert response.status_code == 200
-    assert "12.0%" in response.text
-    assert "SPY" in response.text
-    assert "4.0%" in response.text
-    assert "TWR strips out deposit" in response.text
+    payload = response.json()
+    assert payload["twr_cumulative"] == 0.12
+    assert payload["benchmark"] == "SPY"
+    assert payload["excess_cumulative"] == 0.04
+    assert payload["note"] == "TWR strips out deposit and withdrawal timing."

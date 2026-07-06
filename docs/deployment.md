@@ -1,18 +1,20 @@
-# Deployment: Hetzner VPS + Cloudflare Tunnel + Access
+# Deployment: React SPA Worker + Hetzner API + Cloudflare Access
 
-Target architecture: a small Hetzner Cloud VPS runs the app in Docker Compose with
-zero open inbound ports; `cloudflared` dials out to Cloudflare, which fronts the
-app at a hostname you own and gates every request behind Cloudflare Access SSO.
+Target architecture: Cloudflare serves the React SPA from a Worker at
+`stonks.ikusner.dev`. The Worker proxies `/api/*` to `stonks-api.ikusner.dev`
+with a Cloudflare Access service token. A small Hetzner Cloud VPS runs the
+FastAPI JSON API in Docker Compose with zero open inbound ports; `cloudflared`
+dials out to Cloudflare and exposes only the API hostname through the tunnel.
 The app has **no auth of its own** — never expose port 8000 publicly.
 
 ```
-phone/laptop ──HTTPS──> Cloudflare edge ──(Access: SSO, email allowlist)
-                              │
-                        Cloudflare Tunnel (outbound-only from VPS)
-                              │
-                     docker network: cloudflared ──> app:8000
-                                                       │
-                                                stocks-data volume (/data)
+phone/laptop ──HTTPS──> stonks.ikusner.dev Worker ── static SPA assets
+             (Access OTP)          │
+                                   └── /api/* with Access service token
+                                       └── stonks-api.ikusner.dev
+                                           └── Cloudflare Tunnel
+                                               └── app:8000 JSON API
+                                                   └── stocks-data volume (/data)
 ```
 
 Cost: Hetzner CX22 ≈ €3.85/mo. Cloudflare Tunnel + Access are free for this use
@@ -40,23 +42,24 @@ apt-get install -y unattended-upgrades
 dpkg-reconfigure -plow unattended-upgrades
 ```
 
-## 2. Create the tunnel + Access policy (Cloudflare dashboard)
+## 2. Create the tunnel + Access policies (Cloudflare dashboard)
 
 Zero Trust dashboard (`one.dash.cloudflare.com`) — your domain must be on Cloudflare.
 
 1. **Networks → Tunnels → Create a tunnel** (Cloudflared connector). Name it
    `stocks`. Copy the token from the `docker run` snippet it shows — that token is
    `CLOUDFLARE_TUNNEL_TOKEN` below.
-2. In the tunnel's **Public Hostname** tab: hostname `stocks.<your-domain>`,
+2. In the tunnel's **Public Hostname** tab: hostname `stonks-api.ikusner.dev`,
    service `http://app:8000` (`app` is the compose service name — cloudflared
    resolves it over the compose network).
 3. **Access → Applications → Add an application** (Self-hosted): application
-   domain `stocks.<your-domain>`; policy: Allow → Include → Emails →
-   your email. Session duration to taste (e.g. 1 week). Pick a login method
-   (Google one-click is the least friction).
+   domain `stonks.ikusner.dev`; policy: Allow → Include → Emails → your email.
+   The SPA hostname is protected by OTP/SSO.
+4. Add a service-auth policy for `stonks-api.ikusner.dev` and create a service
+   token for the Worker to present when it proxies `/api/*`.
 
 After this, the hostname 404s until the container is up, and every request
-must pass SSO first.
+must pass the matching Access policy first.
 
 ## 3. Deploy the app
 
@@ -72,10 +75,29 @@ docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml logs -f   # watch first boot
 ```
 
-Visit `https://stocks.<your-domain>` — you should hit the Access login, then the
-app. Confirm `docker ps` shows the app healthcheck as `healthy`.
+Confirm `docker ps` shows the app healthcheck as `healthy`. The API is reachable
+through `https://stonks-api.ikusner.dev/api/meta` only when the request satisfies
+the Access service-auth policy.
 
-## 4. Updating
+## 4. Deploy the frontend Worker
+
+The normal path is GitHub Actions: the `deploy-frontend` job runs
+`wrangler deploy` from `frontend/`. It requires repository secrets
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+
+Manual fallback:
+
+```bash
+cd frontend
+npm run build
+npx wrangler deploy
+```
+
+After deploy, visit `https://stonks.ikusner.dev` — you should hit the Access
+OTP/SSO flow, then the React SPA. The Worker serves static assets directly and
+proxies `/api/*` to the API hostname.
+
+## 5. Updating
 
 ```bash
 cd stocks && git pull
@@ -85,7 +107,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 State lives in the `stocks-data` volume (`/data`: SQLite DB + caches), so
 rebuilds and container replacement never touch holdings/watchlist/reports.
 
-## 5. Backups
+## 6. Backups
 
 Everything worth keeping is one SQLite file plus rebuildable caches. Set
 `BACKUP_DIR` to a persisted volume path so the app writes daily

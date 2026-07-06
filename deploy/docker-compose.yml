@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
     healthcheck:
       # python instead of curl: the slim base image has no curl/wget.
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=5)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/meta', timeout=5)"]
       interval: 60s
       timeout: 10s
       retries: 3

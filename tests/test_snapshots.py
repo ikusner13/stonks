@@ -11,6 +11,7 @@ from app.portfolio.snapshots import (
     list_snapshots,
     record_snapshot,
 )
+from app.web import api
 
 
 @pytest.fixture(autouse=True)
@@ -134,7 +135,7 @@ def test_build_nav_series_handles_single_and_flat_series():
     assert not hasattr(flat, "chart")
 
 
-def test_nav_route_renders_partial():
+def test_nav_api_returns_series(monkeypatch: pytest.MonkeyPatch):
     with connect() as c:
         c.execute(
             """
@@ -149,16 +150,21 @@ def test_nav_route_renders_partial():
 
     from app.web import app as web_app
 
+    async def value_holdings() -> PortfolioValuation:
+        return _valuation(total_value=125, cash=25, total_cost=80, unrealized_pl=45)
+
+    monkeypatch.setattr(api, "value_holdings", value_holdings)
     client = TestClient(web_app.app)
-    response = client.get("/portfolio/nav")
+    response = client.get("/api/portfolio/nav")
 
     assert response.status_code == 200
-    assert "Portfolio NAV history" in response.text
-    assert "$150" in response.text
-    assert "2026-07-02" in response.text
+    payload = response.json()
+    assert payload["series"]["points"][-1]["day"] == "2026-07-02"
+    assert payload["series"]["points"][-1]["total_with_cash"] == 150
+    assert "returns" in payload
 
 
-def test_portfolio_page_ignores_snapshot_failure(monkeypatch: pytest.MonkeyPatch):
+def test_portfolio_api_ignores_snapshot_failure(monkeypatch: pytest.MonkeyPatch):
     from app.web import app as web_app
 
     async def value_holdings() -> PortfolioValuation:
@@ -167,11 +173,11 @@ def test_portfolio_page_ignores_snapshot_failure(monkeypatch: pytest.MonkeyPatch
     def record_snapshot(_valuation: PortfolioValuation) -> bool:
         raise RuntimeError("snapshot failed")
 
-    monkeypatch.setattr(web_app, "value_holdings", value_holdings)
-    monkeypatch.setattr(web_app, "record_snapshot", record_snapshot)
+    monkeypatch.setattr(api, "value_holdings", value_holdings)
+    monkeypatch.setattr(api, "record_snapshot", record_snapshot)
     client = TestClient(web_app.app)
 
-    response = client.get("/portfolio")
+    response = client.get("/api/portfolio")
 
     assert response.status_code == 200
-    assert "Portfolio" in response.text
+    assert response.json()["valuation"]["total_with_cash"] == 0

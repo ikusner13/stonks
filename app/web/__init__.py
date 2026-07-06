@@ -1,1 +1,1 @@
-"""FastAPI web app: server-rendered pages and HTMX partials."""
+"""FastAPI JSON API app."""

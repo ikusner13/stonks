@@ -14,6 +14,7 @@ from app.portfolio.plan import (
     plan_rebalance,
     set_targets,
 )
+from app.web import api
 
 
 @pytest.fixture(autouse=True)
@@ -307,37 +308,41 @@ def test_targets_routes_valid_and_invalid(monkeypatch: pytest.MonkeyPatch):
     async def value_holdings() -> PortfolioValuation:
         return _valuation()
 
-    monkeypatch.setattr(web_app, "value_holdings", value_holdings)
+    monkeypatch.setattr(api, "value_holdings", value_holdings)
     client = TestClient(web_app.app)
 
-    response = client.post(
-        "/portfolio/targets",
-        data={
-            "symbol[]": ["aaa", "BBB", "UNT"],
-            "weight_pct[]": ["30", "15", ""],
+    response = client.put(
+        "/api/portfolio/targets",
+        json={
+            "targets": [
+                {"symbol": "aaa", "weight_pct": 30},
+                {"symbol": "BBB", "weight_pct": 15},
+            ],
         },
     )
 
     assert response.status_code == 200
-    assert response.headers["HX-Trigger"] == "targets-changed"
     assert list_targets() == [
         Target(symbol="AAA", target_weight=0.30),
         Target(symbol="BBB", target_weight=0.15),
     ]
-    assert "Implicit cash target" in response.text
-    assert "55.0%" in response.text
+    payload = response.json()
+    assert payload["implicit_cash_weight"] == pytest.approx(0.55)
+    assert payload["rows"][0] == {"symbol": "AAA", "weight_pct": 30.0}
+    assert payload["rows"][1] == {"symbol": "BBB", "weight_pct": 15.0}
 
-    response = client.post(
-        "/portfolio/targets",
-        data={
-            "symbol[]": ["AAA", "BBB"],
-            "weight_pct[]": ["70", "50"],
+    response = client.put(
+        "/api/portfolio/targets",
+        json={
+            "targets": [
+                {"symbol": "AAA", "weight_pct": 70},
+                {"symbol": "BBB", "weight_pct": 50},
+            ],
         },
     )
 
-    assert response.status_code == 200
-    assert "error-panel" in response.text
-    assert "target weights sum to 120%" in response.text
+    assert response.status_code == 400
+    assert response.json()["detail"]["message"] == "target weights sum to 120%"
     assert list_targets() == [
         Target(symbol="AAA", target_weight=0.30),
         Target(symbol="BBB", target_weight=0.15),
@@ -350,26 +355,27 @@ def test_rebalance_route_with_and_without_targets(monkeypatch: pytest.MonkeyPatc
     async def value_holdings() -> PortfolioValuation:
         return _valuation()
 
-    monkeypatch.setattr(web_app, "value_holdings", value_holdings)
+    monkeypatch.setattr(api, "value_holdings", value_holdings)
     client = TestClient(web_app.app)
 
-    response = client.get("/portfolio/rebalance")
+    response = client.get("/api/portfolio/rebalance")
 
     assert response.status_code == 200
-    assert "Set target allocations" in response.text
+    assert response.json()["has_targets"] is False
+    assert response.json()["plan"] is None
 
     set_targets([
         Target(symbol="AAA", target_weight=0.30),
         Target(symbol="BBB", target_weight=0.15),
         Target(symbol="ZERO", target_weight=0),
     ])
-    response = client.get("/portfolio/rebalance")
+    response = client.get("/api/portfolio/rebalance")
 
     assert response.status_code == 200
-    assert "Rebalance plan" not in response.text
-    assert "AAA" in response.text
-    assert "ZERO" in response.text
-    assert "Untargeted holdings excluded from trades" in response.text
+    payload = response.json()
+    assert payload["has_targets"] is True
+    assert {item["symbol"] for item in payload["plan"]["items"]} == {"AAA", "BBB", "ZERO"}
+    assert payload["plan"]["untargeted"] == ["UNT", "UNP"]
 
 
 def test_whatif_route_valid_and_invalid_amount(monkeypatch: pytest.MonkeyPatch):
@@ -378,7 +384,7 @@ def test_whatif_route_valid_and_invalid_amount(monkeypatch: pytest.MonkeyPatch):
     async def value_holdings() -> PortfolioValuation:
         return _valuation()
 
-    monkeypatch.setattr(web_app, "value_holdings", value_holdings)
+    monkeypatch.setattr(api, "value_holdings", value_holdings)
     set_targets([
         Target(symbol="AAA", target_weight=0.30),
         Target(symbol="BBB", target_weight=0.25),
@@ -386,16 +392,16 @@ def test_whatif_route_valid_and_invalid_amount(monkeypatch: pytest.MonkeyPatch):
     ])
     client = TestClient(web_app.app)
 
-    response = client.post("/portfolio/whatif", data={"amount": "100"})
+    response = client.post("/api/portfolio/whatif", json={"amount": 100})
 
     assert response.status_code == 200
-    assert "AAA" in response.text
-    assert "Buy $" in response.text
-    assert "Leftover cash" in response.text
-    assert "not investment advice" in response.text
+    payload = response.json()
+    assert payload["has_targets"] is True
+    assert {item["symbol"] for item in payload["plan"]["items"]} >= {"AAA", "BBB"}
+    assert payload["plan"]["leftover_cash"] >= 0
+    assert payload["disclaimer"]
 
-    response = client.post("/portfolio/whatif", data={"amount": "bad"})
+    response = client.post("/api/portfolio/whatif", json={"amount": 0})
 
-    assert response.status_code == 200
-    assert "error-panel" in response.text
-    assert "positive number" in response.text
+    assert response.status_code == 400
+    assert response.json()["detail"]["message"] == "Contribution amount must be a positive number."

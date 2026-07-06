@@ -1,8 +1,8 @@
 """Server-side watchlist store (SQLite). Single-user personal tool — no auth.
 
-Replaces the original browser-localStorage watchlist so the list can be
-server-rendered and survives across devices. One table, two columns: a symbol
-and an optional dollar position used by the portfolio page.
+Replaces the original browser-localStorage watchlist so the list survives
+across devices. One table, two columns: a symbol and an optional dollar position
+used by portfolio API responses.
 """
 
 from __future__ import annotations

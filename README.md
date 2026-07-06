@@ -9,7 +9,8 @@ optimization, a historical allocation backtest, and plain-language
 decision-support signals (concentration, correlation, drift, position sizing).
 An optional transaction ledger can apply deposits, withdrawals, buys, and sells
 to the authoritative portfolio state and compute realized P/L plus
-money-weighted return.
+money-weighted return. The frontend is a React SPA; FastAPI serves the JSON API
+and background scheduler only.
 
 **What this is not**: it does not place orders, hold custody of money, or give
 investment advice. Every number is either fetched from a real source or
@@ -32,7 +33,8 @@ production hosting (Hetzner + Cloudflare Tunnel/Access), see
 cp .env.example .env   # add OPENROUTER_API_KEY
 uv sync
 uv run uvicorn app.web.app:app --reload --port 8000
-# open http://localhost:8000
+# API smoke test: http://localhost:8000/api/meta
+cd frontend && npm run dev
 ```
 
 ### Environment keys
@@ -54,7 +56,8 @@ including model overrides and cache/DB paths.
 ### Running it
 
 ```bash
-uv run uvicorn app.web.app:app --reload --port 8000   # web app, dev mode
+uv run uvicorn app.web.app:app --reload --port 8000   # JSON API, dev mode
+cd frontend && npm run dev                             # React SPA, dev mode
 uv run stocks research AAPL                            # CLI: thorough research
 uv run stocks research AAPL --cheap                     # CLI: cheap mode
 uv run stocks discover "AI infrastructure under $100B market cap"
@@ -83,8 +86,8 @@ your saved holdings, transaction ledger, and watchlist entries are gone for good
   metrics, an indicator-scorecard read, risks, and open questions.
   - **Profiles**: the app automatically selects `largecap` or `penny` research
     policy from exchange, price, and market cap; override with
-    `uv run stocks research SYM --profile penny|largecap` or
-    `/research/SYM/report?profile=penny|largecap`.
+    `uv run stocks research SYM --profile penny|largecap` or the
+    `/api/research/SYM?profile=penny|largecap` API.
   - **Thorough mode** (default): workhorse-model draft → premium-model audit →
     if the audit finds fabrication or a medium/high-severity issue, a premium
     revision → a final premium re-critique. Confidence is clamped to the
@@ -97,11 +100,11 @@ your saved holdings, transaction ledger, and watchlist entries are gone for good
   - **Position sizing**: when the ticker is viewed against the current
     portfolio, guidance uses holdings plus recorded cash as the investable base
     and treats any existing position weight as already-consumed headroom.
-- **Watchlist** — a server-side (SQLite) list of tracked symbols; toggled from
-  any research report, and used to prefill the portfolio page.
+- **Watchlist** — a server-side (SQLite) list of tracked symbols; exposed by
+  the JSON API and used by the React SPA.
 - **Portfolio** — SnapTrade-synced holdings, cash, and transactions, dry-powder
   tracking, daily NAV snapshots, optional Discord drift alerts, and
-  server-rendered visuals, plus decision-support panels:
+  SPA-rendered visuals, plus decision-support panels:
   - **Health**: concentration by top-1/3/5 holding weight, in plain language,
     with an allocation donut across priced holdings and cash.
   - **Correlation**: pairwise return correlation flags holdings that move
@@ -154,12 +157,13 @@ app/
   indicators/  deterministic indicator scorecard + confidence assessment
   llm/         Pydantic AI pipelines: research, critic, discovery, usage tracking
   portfolio/   holdings valuation, transactions/MWR, NAV snapshots, targets/rebalance, optimizer, backtest, decision_support
-  web/         FastAPI app, Jinja2 templates, HTMX partials, SVG chart helpers, static assets
+  web/         FastAPI JSON API app and lifespan scheduler wiring
   cache.py     file-based read-through KV (data/sec/macro/report/scorecard/correlation caches)
   db.py        SQLite watchlist/settings store + shared connection helper
   jobs.py      in-process daily NAV snapshot + Discord drift alert loop
   schemas.py   Pydantic models / LLM structured-output contracts
   cli.py       Typer CLI
+frontend/      React SPA (Vite + TanStack)
 docs/
   methodology.md   how the app determines stock effectiveness — read before touching indicators or prompts
   architecture.md  module map, request traces, caching, concurrency
