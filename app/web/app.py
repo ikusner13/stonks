@@ -8,10 +8,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from csv import Error as CsvError
-from csv import reader as csv_reader
 from datetime import UTC, datetime
-from io import StringIO
 from math import isfinite
 from pathlib import Path
 from typing import Literal
@@ -73,6 +70,7 @@ from ..portfolio.transactions import (
 from ..portfolio.twr import compute_twr_summary
 from ..schemas import Confidence
 from .charts import corr_color, donut, frontier_chart, nav_area
+from .imports import CsvImportError, import_holdings_csv, import_transactions_csv
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -96,10 +94,6 @@ OPTIMIZER_EXCLUSION_WARNING = (
     "excluded from mean-variance optimization: sample statistics on illiquid micro-caps "
     "are unreliable"
 )
-
-MAX_IMPORT_BYTES = 100 * 1024
-MAX_IMPORT_ROWS = 500
-
 
 # --- Jinja filters ----------------------------------------------------------
 
@@ -215,6 +209,11 @@ init_snapshots_db()  # idempotent; ensures the NAV history table exists before f
 init_targets_db()  # idempotent; ensures target allocations exist before first request
 init_transactions_db()  # idempotent; ensures the transaction ledger exists before first request
 init_alerts_db()  # idempotent; ensures alert ranges and delivery ledger exist before first request
+
+from .api import api_exception_handler, router as api_router  # noqa: E402
+
+app.add_exception_handler(Exception, api_exception_handler)
+app.include_router(api_router)
 
 
 # --- Discover ---------------------------------------------------------------
@@ -496,72 +495,10 @@ async def portfolio_cash_set(request: Request, cash: str = Form("")):
 
 @app.post("/portfolio/import", response_class=HTMLResponse)
 async def portfolio_import(request: Request, file: UploadFile = File(...)):
-    raw = await file.read()
-    if len(raw) > MAX_IMPORT_BYTES:
-        return _error_partial(request, "CSV import failed: file must be 100 KB or smaller.")
-
     try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return _error_partial(request, "CSV import failed: file must be UTF-8 encoded.")
-
-    try:
-        rows = list(csv_reader(StringIO(text)))
-    except CsvError:
-        return _error_partial(request, "CSV import failed: unable to parse CSV.")
-
-    if not rows:
-        return _error_partial(request, "CSV import failed: header row is required.")
-
-    header = [col.strip().lower() for col in rows[0]]
-    column_map = {name: index for index, name in enumerate(header) if name}
-    if "symbol" not in column_map or "shares" not in column_map:
-        return _error_partial(
-            request, "CSV import failed: header must include symbol and shares columns."
-        )
-
-    data_rows = rows[1:]
-    if len(data_rows) > MAX_IMPORT_ROWS:
-        return _error_partial(request, "CSV import failed: maximum 500 data rows allowed.")
-
-    imported = 0
-    skipped: list[str] = []
-    symbol_index = column_map["symbol"]
-    shares_index = column_map["shares"]
-    avg_cost_index = column_map.get("avg_cost")
-
-    for line_number, row in enumerate(data_rows, start=2):
-        if not any(cell.strip() for cell in row):
-            continue
-
-        symbol = row[symbol_index].strip().upper() if symbol_index < len(row) else ""
-        if not symbol:
-            skipped.append(f"line {line_number}: missing symbol")
-            continue
-
-        raw_shares = row[shares_index].strip() if shares_index < len(row) else ""
-        try:
-            shares = float(raw_shares)
-        except ValueError:
-            skipped.append(f"line {line_number}: bad shares '{raw_shares}'")
-            continue
-        if shares <= 0 or not isfinite(shares):
-            skipped.append(f"line {line_number}: shares must be > 0")
-            continue
-
-        avg_cost: float | None = None
-        if avg_cost_index is not None and avg_cost_index < len(row):
-            raw_avg_cost = row[avg_cost_index].strip()
-            if raw_avg_cost:
-                try:
-                    avg_cost = float(raw_avg_cost)
-                except ValueError:
-                    avg_cost = None
-                if avg_cost is not None and not isfinite(avg_cost):
-                    avg_cost = None
-
-        upsert_holding(symbol, shares, avg_cost)
-        imported += 1
+        summary = import_holdings_csv(await file.read())
+    except CsvImportError as e:
+        return _error_partial(request, str(e))
 
     valuation = await value_holdings()
     return templates.TemplateResponse(
@@ -569,7 +506,7 @@ async def portfolio_import(request: Request, file: UploadFile = File(...)):
         "partials/holdings_table.html",
         {
             "valuation": valuation,
-            "import_summary": {"imported": imported, "skipped": skipped},
+            "import_summary": summary.model_dump(),
         },
     )
 
@@ -671,75 +608,15 @@ async def portfolio_transaction_delete(request: Request, txn_id: int):
 
 @app.post("/portfolio/transactions/import", response_class=HTMLResponse)
 async def portfolio_transactions_import(request: Request, file: UploadFile = File(...)):
-    raw = await file.read()
-    if len(raw) > MAX_IMPORT_BYTES:
-        return _error_partial(request, "CSV import failed: file must be 100 KB or smaller.")
-
     try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return _error_partial(request, "CSV import failed: file must be UTF-8 encoded.")
-
-    try:
-        rows = list(csv_reader(StringIO(text)))
-    except CsvError:
-        return _error_partial(request, "CSV import failed: unable to parse CSV.")
-
-    if not rows:
-        return _error_partial(request, "CSV import failed: header row is required.")
-
-    header = [col.strip().lower() for col in rows[0]]
-    column_map = {name: index for index, name in enumerate(header) if name}
-    if "date" not in column_map or "side" not in column_map:
-        return _error_partial(request, "CSV import failed: header must include date and side.")
-
-    data_rows = rows[1:]
-    if len(data_rows) > MAX_IMPORT_ROWS:
-        return _error_partial(request, "CSV import failed: maximum 500 data rows allowed.")
-
-    def cell(row: list[str], name: str) -> str:
-        index = column_map.get(name)
-        if index is None or index >= len(row):
-            return ""
-        return row[index].strip()
-
-    imported = 0
-    skipped: list[str] = []
-    for line_number, row in enumerate(data_rows, start=2):
-        if not any(col.strip() for col in row):
-            continue
-        try:
-            side_clean = cell(row, "side").lower()
-            raw_shares = cell(row, "shares")
-            raw_price = cell(row, "price")
-            shares_value = float(raw_shares) if raw_shares else None
-            price_value = float(raw_price) if raw_price else None
-            raw_amount = cell(row, "amount")
-            amount_value = (
-                float(shares_value or 0) * float(price_value or 0)
-                if side_clean in {"buy", "sell"}
-                else float(raw_amount)
-            )
-            apply_transaction(
-                Transaction(
-                    ts=cell(row, "date"),
-                    side=side_clean,
-                    symbol=cell(row, "symbol") or None,
-                    shares=shares_value,
-                    price=price_value,
-                    amount=amount_value,
-                    realized_pl=None,
-                    note=cell(row, "note"),
-                )
-            )
-            imported += 1
-        except (TypeError, ValueError) as e:
-            skipped.append(f"line {line_number}: {e}")
+        summary = import_transactions_csv(await file.read())
+    except CsvImportError as e:
+        return _error_partial(request, str(e))
 
     response = templates.TemplateResponse(
         request,
         "partials/transactions.html",
-        await _transactions_context({"imported": imported, "skipped": skipped}),
+        await _transactions_context(summary.model_dump()),
     )
     response.headers["HX-Trigger"] = "txns-changed, holdings-changed"
     return response
