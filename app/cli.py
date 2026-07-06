@@ -11,7 +11,7 @@ from enum import Enum
 
 import typer
 
-from . import db
+from . import config, db
 from .alerts import init_alerts_db
 from .jobs import LAST_RUN_PREFIX, Job, build_jobs
 from .llm.critic import ReviewMode
@@ -21,6 +21,8 @@ from .llm.usage import format_event, format_rollup, with_run
 from .schemas import Critique, DiscoveryResult, ResearchResult, TickerData, TickerReport
 
 app = typer.Typer(add_completion=False, help="LLM-driven equity research assistant.")
+broker_app = typer.Typer(help="Read-only broker connection and sync commands.")
+app.add_typer(broker_app, name="broker")
 
 
 class ProfileOption(str, Enum):
@@ -190,6 +192,58 @@ def jobs_run(name: str) -> None:
             return
     typer.echo(f"unknown job: {name}", err=True)
     raise typer.Exit(1)
+
+
+@broker_app.command("connect")
+def broker_connect() -> None:
+    """Register/connect the configured SnapTrade user and print the portal URL."""
+    from .broker.snaptrade import connection_portal_url, register_user
+
+    async def run() -> tuple[str | None, str]:
+        user_secret: str | None = None
+        if not config.SNAPTRADE_USER_SECRET:
+            user_secret = await register_user()
+            config.SNAPTRADE_USER_SECRET = user_secret
+        return user_secret, await connection_portal_url()
+
+    try:
+        user_secret, portal_url = asyncio.run(run())
+    except Exception as exc:
+        typer.echo(f"SnapTrade connect failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if user_secret:
+        typer.echo(f"SNAPTRADE_USER_SECRET={user_secret}")
+    typer.echo(portal_url)
+
+
+@broker_app.command("sync")
+def broker_sync(dry_run: bool = typer.Option(False, "--dry-run", help="Fetch and diff only.")) -> None:
+    """Sync local holdings/cash from the configured SnapTrade account."""
+    from .broker.sync import run_sync
+
+    try:
+        result = asyncio.run(run_sync(dry_run=dry_run))
+    except Exception as exc:
+        typer.echo(f"Broker sync failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    status = "dry-run" if dry_run else "applied"
+    typer.echo(f"Broker sync {status} @ {result.asof}")
+    typer.echo(
+        "holdings: "
+        f"{len(result.diff.to_upsert)} upsert, "
+        f"{len(result.diff.to_remove)} remove, "
+        f"{result.diff.unchanged} unchanged"
+    )
+    typer.echo(
+        "cash: "
+        f"${result.diff.cash_before:,.2f} -> ${result.diff.cash_after:,.2f}; "
+        f"activities: {result.imported_activities} imported, "
+        f"{result.skipped_activities} skipped"
+    )
+    for warning in result.warnings:
+        typer.echo(f"warning: {warning}", err=True)
 
 
 if __name__ == "__main__":

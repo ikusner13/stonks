@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
+from sqlite3 import IntegrityError
 
 from pydantic import BaseModel
 
@@ -26,6 +27,7 @@ class Transaction(BaseModel):
     amount: float
     realized_pl: float | None
     note: str = ""
+    external_id: str | None = None
 
 
 class ReturnsSummary(BaseModel):
@@ -133,8 +135,22 @@ def init_transactions_db() -> None:
                 amount REAL NOT NULL,
                 realized_pl REAL,
                 note TEXT DEFAULT '',
+                external_id TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
+            """
+        )
+        columns = {
+            row["name"]
+            for row in c.execute("PRAGMA table_info(transactions)").fetchall()
+        }
+        if "external_id" not in columns:
+            c.execute("ALTER TABLE transactions ADD COLUMN external_id TEXT")
+        c.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_external_id
+            ON transactions(external_id)
+            WHERE external_id IS NOT NULL
             """
         )
 
@@ -163,6 +179,7 @@ def _validated_transaction(txn: Transaction) -> Transaction:
             amount=amount,
             realized_pl=txn.realized_pl,
             note=note,
+            external_id=txn.external_id,
         )
 
     amount = _positive_number(txn.amount, "amount")
@@ -179,6 +196,7 @@ def _validated_transaction(txn: Transaction) -> Transaction:
         amount=_round_cents(amount),
         realized_pl=None,
         note=note,
+        external_id=txn.external_id,
     )
 
 
@@ -239,8 +257,9 @@ def apply_transaction(txn: Transaction) -> Transaction:
 
         row = c.execute(
             """
-            INSERT INTO transactions (ts, side, symbol, shares, price, amount, realized_pl, note)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO transactions
+                (ts, side, symbol, shares, price, amount, realized_pl, note, external_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
             """,
             (
@@ -252,6 +271,7 @@ def apply_transaction(txn: Transaction) -> Transaction:
                 clean.amount,
                 realized_pl,
                 clean.note,
+                clean.external_id,
             ),
         ).fetchone()
 
@@ -265,7 +285,46 @@ def apply_transaction(txn: Transaction) -> Transaction:
         amount=clean.amount,
         realized_pl=realized_pl,
         note=clean.note,
+        external_id=clean.external_id,
     )
+
+
+def record_transaction_ledger_only(txn: Transaction, external_id: str) -> Transaction:
+    """Insert a broker-imported row without mutating holdings or cash."""
+    external_id = external_id.strip()
+    if not external_id:
+        raise ValueError("external_id is required")
+    init_transactions_db()
+    clean = _validated_transaction(txn).model_copy(
+        update={
+            "external_id": external_id,
+            "realized_pl": None if txn.side.strip().lower() == "sell" else txn.realized_pl,
+        }
+    )
+    try:
+        with db.connect() as c:
+            row = c.execute(
+                """
+                INSERT INTO transactions
+                    (ts, side, symbol, shares, price, amount, realized_pl, note, external_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
+                """,
+                (
+                    clean.ts,
+                    clean.side,
+                    clean.symbol,
+                    clean.shares,
+                    clean.price,
+                    clean.amount,
+                    clean.realized_pl,
+                    clean.note,
+                    clean.external_id,
+                ),
+            ).fetchone()
+    except IntegrityError:
+        raise
+    return clean.model_copy(update={"id": row["id"]})
 
 
 def delete_transaction(txn_id: int) -> None:
@@ -287,7 +346,7 @@ def list_transactions(limit: int = 200, symbol: str | None = None) -> list[Trans
     with db.connect() as c:
         rows = c.execute(
             f"""
-            SELECT id, ts, side, symbol, shares, price, amount, realized_pl, note
+            SELECT id, ts, side, symbol, shares, price, amount, realized_pl, note, external_id
             FROM transactions
             {where}
             ORDER BY ts DESC, id DESC
@@ -306,6 +365,7 @@ def list_transactions(limit: int = 200, symbol: str | None = None) -> list[Trans
             amount=row["amount"],
             realized_pl=row["realized_pl"],
             note=row["note"] or "",
+            external_id=row["external_id"],
         )
         for row in rows
     ]

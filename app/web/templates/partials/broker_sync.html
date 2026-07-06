@@ -1,0 +1,45 @@
+{% if broker_sync_configured %}
+<div id="broker-sync-card" class="mb-6 rounded-2xl border border-[var(--line)] p-5">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h2 class="text-lg font-semibold">Broker sync</h2>
+      <p class="text-sm text-[var(--sea-ink-soft)]">Last successful sync: {{ last_broker_sync or 'never' }}</p>
+    </div>
+    <form
+      hx-post="/portfolio/broker/sync"
+      hx-target="#broker-sync-card"
+      hx-swap="outerHTML"
+      hx-indicator="#broker-sync-spin">
+      <button type="submit"
+        class="rounded-full border border-[var(--line)] bg-[var(--chip-bg)] px-4 py-2 text-sm font-semibold">
+        Sync now
+      </button>
+    </form>
+  </div>
+  <p id="broker-sync-spin" class="htmx-indicator mt-3 text-sm text-[var(--sea-ink-soft)]">Syncing broker state...</p>
+
+  {% if sync_result %}
+  <div class="mt-4 grid gap-3 sm:grid-cols-3">
+    <div class="rounded-xl border border-[var(--line)] px-4 py-3">
+      <p class="text-xs text-[var(--sea-ink-soft)]">Holdings</p>
+      <p class="text-sm tabular-nums">{{ sync_result.diff.to_upsert | length }} upsert, {{ sync_result.diff.to_remove | length }} remove</p>
+    </div>
+    <div class="rounded-xl border border-[var(--line)] px-4 py-3">
+      <p class="text-xs text-[var(--sea-ink-soft)]">Cash</p>
+      <p class="text-sm tabular-nums">${{ sync_result.diff.cash_before | fmt_num }} -> ${{ sync_result.diff.cash_after | fmt_num }}</p>
+    </div>
+    <div class="rounded-xl border border-[var(--line)] px-4 py-3">
+      <p class="text-xs text-[var(--sea-ink-soft)]">Activities</p>
+      <p class="text-sm tabular-nums">{{ sync_result.imported_activities }} imported, {{ sync_result.skipped_activities }} skipped</p>
+    </div>
+  </div>
+  {% if sync_result.warnings %}
+  <ul class="mt-3 list-disc pl-5 text-xs text-[var(--sea-ink-soft)]">
+    {% for warning in sync_result.warnings[:5] %}
+    <li>{{ warning }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
+</div>
+{% endif %}

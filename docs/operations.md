@@ -13,6 +13,11 @@
 | `BACKUP_DIR` | Optional (default unset) | Directory for daily SQLite backups written by the in-process scheduler. | Unset disables automatic backups. |
 | `BACKUP_KEEP` | Optional (default `14`) | Number of dated `stocks-*.db` backups to retain when `BACKUP_DIR` is set. | Uses the default retention. |
 | `FINNHUB_API_KEY` | Optional | Preferred quote/news source over Yahoo when set. | Finnhub calls are skipped entirely (not attempted, not marked `error` — they simply produce no `sources` entry). Quote/news fall back to Yahoo. |
+| `SNAPTRADE_CLIENT_ID` | Optional | Enables read-only SnapTrade broker sync when paired with `SNAPTRADE_CONSUMER_KEY`. | Empty keeps broker sync fully disabled: no scheduler job and no portfolio sync card. |
+| `SNAPTRADE_CONSUMER_KEY` | Optional | SnapTrade SDK authentication, paired with `SNAPTRADE_CLIENT_ID`. | Empty keeps broker sync fully disabled. |
+| `SNAPTRADE_USER_ID` | Required for broker sync/connect | Stable single-user ID registered with SnapTrade. | Broker connect/sync raises until set. |
+| `SNAPTRADE_USER_SECRET` | Required after registration | Secret returned once by `stocks broker connect`; required for account data. | `stocks broker connect` registers and prints it when absent; sync raises until saved. |
+| `SNAPTRADE_ACCOUNT_ID` | Optional | Selects the account to mirror when SnapTrade returns multiple accounts. | If unset and exactly one account exists, that account is used; if multiple accounts exist, sync raises with a listing. |
 | `FRED_API_KEY` | Optional | Enables macro context (fed funds, CPI YoY, 10y treasury, unemployment, GDP growth). | `sources.macro = "disabled"`; `TickerData.macro` stays `None`; the report has no macro section rather than an empty one. |
 | `SEC_IDENTITY` | Optional | Contact email SEC EDGAR requires for XBRL financials. | Falls back to a hardcoded address in `app/data/sec.py`; financials still fetch normally — set your own for anything beyond local use. |
 | `WORKHORSE_MODEL` | Optional (default `google/gemini-3.1-flash-lite`) | Model for the research draft, discovery, and the cheap-mode critic. | Uses the default. |
@@ -38,6 +43,8 @@ uv run uvicorn app.web.app:app --reload --port 8000
 uv run stocks research AAPL [--cheap] [--fresh]
 uv run stocks discover "<goal>"
 uv run stocks usage
+uv run stocks broker connect
+uv run stocks broker sync [--dry-run]
 ```
 
 **Docker:**
@@ -54,6 +61,28 @@ for research, re-pays the LLM cost for anything requested that trading day).
 ```bash
 LOG_LEVEL=DEBUG uv run uvicorn app.web.app:app --reload --port 8000
 ```
+
+## SnapTrade broker sync
+
+Broker sync is optional and read-only. The app never calls SnapTrade trading or
+order-placement endpoints; it reads accounts, positions, balances, and account
+activities, then mirrors the selected broker account into local holdings/cash.
+
+One-time setup:
+
+1. Set `SNAPTRADE_CLIENT_ID`, `SNAPTRADE_CONSUMER_KEY`, and a stable
+   `SNAPTRADE_USER_ID` in `.env`.
+2. Run `uv run stocks broker connect`.
+3. Save the printed `SNAPTRADE_USER_SECRET=...` line into `.env`.
+4. Open the printed portal URL within 5 minutes and link Fidelity with read
+   permissions.
+5. Run `uv run stocks broker sync --dry-run` to inspect the diff, then
+   `uv run stocks broker sync` to apply it.
+
+If the linked user has more than one account, set `SNAPTRADE_ACCOUNT_ID` to the
+account ID shown in the sync error. Successful sync stores `last_broker_sync`
+in SQLite settings; failed SnapTrade fetches raise and do not advance the
+setting, so the scheduler retries on the next due tick.
 
 ## Portfolio CSV import
 

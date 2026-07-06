@@ -21,9 +21,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import db
+from .. import config, db
 from ..alerts import init_alerts_db
-from ..config import OPENROUTER_API_KEY
 from ..jobs import build_jobs, scheduler_loop
 from ..llm.budget import BudgetExceededError
 from ..llm.discovery import discover_ideas
@@ -89,7 +88,7 @@ EXAMPLES = [
 ]
 
 _CONF_ORDER = {"low": 0, "medium": 1, "high": 2}
-LLM_CONFIGURED = bool(OPENROUTER_API_KEY)
+LLM_CONFIGURED = bool(config.OPENROUTER_API_KEY)
 if not LLM_CONFIGURED:
     logger.warning("OPENROUTER_API_KEY not set — research and discovery will fail")
 
@@ -398,6 +397,9 @@ async def portfolio_page(request: Request):
             "health": health,
             "allocation_slices": allocation_slices,
             "ds_disclaimer": DS_DISCLAIMER,
+            "broker_sync_configured": config.SNAPTRADE_CONFIGURED,
+            "last_broker_sync": db.get_setting("last_broker_sync"),
+            "sync_result": None,
         },
     )
 
@@ -405,6 +407,28 @@ async def portfolio_page(request: Request):
 @app.get("/portfolio/holdings/row", response_class=HTMLResponse)
 def portfolio_holdings_row(request: Request):
     return templates.TemplateResponse(request, "partials/portfolio_row.html", {"r": None})
+
+
+@app.post("/portfolio/broker/sync", response_class=HTMLResponse)
+async def portfolio_broker_sync(request: Request):
+    try:
+        from ..broker.sync import LAST_BROKER_SYNC_KEY, run_sync
+
+        result = await run_sync(dry_run=False)
+        response = templates.TemplateResponse(
+            request,
+            "partials/broker_sync.html",
+            {
+                "broker_sync_configured": config.SNAPTRADE_CONFIGURED,
+                "last_broker_sync": db.get_setting(LAST_BROKER_SYNC_KEY),
+                "sync_result": result,
+            },
+        )
+        response.headers["HX-Trigger"] = "txns-changed, holdings-changed"
+        return response
+    except Exception:
+        logger.exception("broker sync failed")
+        return _error_partial(request, "Broker sync failed — see server logs.")
 
 
 @app.get("/portfolio/holdings", response_class=HTMLResponse)

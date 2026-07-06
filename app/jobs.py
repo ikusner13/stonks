@@ -191,6 +191,14 @@ async def run_db_backup() -> dict:
     return {"backup": str(path)}
 
 
+async def run_broker_sync_job() -> dict:
+    """Mirror broker state before portfolio snapshot/drift jobs."""
+    from .broker.sync import run_sync
+
+    result = await run_sync(dry_run=False)
+    return result.model_dump()
+
+
 def _last_run_key(job: Job) -> str:
     return f"{LAST_RUN_PREFIX}{job.name}"
 
@@ -241,6 +249,14 @@ async def scheduler_loop(jobs: list[Job], tick_seconds: int | None = None) -> No
 def build_jobs() -> list[Job]:
     """Build the registered background jobs for this process."""
     registry: list[Job] = []
+    if config.SNAPTRADE_CONFIGURED and config.DAILY_JOB_HOUR_UTC >= 0:
+        registry.append(
+            Job(
+                name="broker_sync",
+                run=run_broker_sync_job,
+                at_hour_utc=config.DAILY_JOB_HOUR_UTC,
+            )
+        )
     if config.DAILY_JOB_HOUR_UTC >= 0:
         registry.append(
             Job(
