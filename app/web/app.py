@@ -10,6 +10,7 @@ import sys
 from contextlib import asynccontextmanager
 from csv import Error as CsvError
 from csv import reader as csv_reader
+from datetime import UTC, datetime
 from io import StringIO
 from math import isfinite
 from pathlib import Path
@@ -61,6 +62,7 @@ from ..portfolio.snapshots import (
     list_snapshots,
     record_snapshot,
 )
+from ..portfolio.tax import compute_tax_signals
 from ..portfolio.transactions import (
     Transaction,
     apply_transaction,
@@ -371,6 +373,11 @@ def watchlist_remove(symbol: str):
 @app.get("/portfolio", response_class=HTMLResponse)
 async def portfolio_page(request: Request):
     valuation = await value_holdings()
+    tax_signals = compute_tax_signals(
+        valuation,
+        list_transactions(limit=10_000),
+        datetime.now(UTC).date(),
+    )
     try:
         record_snapshot(valuation)
     except Exception:
@@ -395,6 +402,7 @@ async def portfolio_page(request: Request):
             "health": health,
             "allocation_slices": allocation_slices,
             "ds_disclaimer": DS_DISCLAIMER,
+            "tax_signals": tax_signals,
         },
     )
 
