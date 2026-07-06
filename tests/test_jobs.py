@@ -13,6 +13,7 @@ def _tmp_db(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "stocks.db")
     monkeypatch.setattr(config, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
     monkeypatch.setattr(config, "DRIFT_ALERT_ENABLED", True)
+    monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", False)
     db.init_db()
     init_targets_db()
 
@@ -154,6 +155,18 @@ def test_build_jobs_empty_when_daily_hour_negative(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
 
     assert jobs.build_jobs() == []
+
+
+def test_build_jobs_registers_sec_alerts_when_enabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(config, "DAILY_JOB_HOUR_UTC", -1)
+    monkeypatch.setattr(config, "SEC_ALERTS_ENABLED", True)
+    monkeypatch.setattr(config, "SEC_ALERT_HOURS", 4)
+
+    registry = jobs.build_jobs()
+
+    assert len(registry) == 1
+    assert registry[0].name == "sec_filing_alerts"
+    assert registry[0].cadence == timedelta(hours=4)
 
 
 async def test_run_daily_jobs_records_snapshot_sends_dedupes_and_resends_changed(
