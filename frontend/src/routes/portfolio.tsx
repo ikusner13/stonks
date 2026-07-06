@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Download, Play, Plus, Save, Trash2 } from "lucide-react";
 import {
@@ -24,15 +24,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ErrorBlock, Panel, SectionSkeleton, Spinner } from "@/components/common";
 import {
   useBrokerSyncMutation,
-  useCashMutation,
-  useDeleteHoldingMutation,
-  useDeleteTransactionMutation,
-  useImportHoldingsMutation,
-  useImportTransactionsMutation,
-  useAddTransactionMutation,
   useOptimizeMutation,
   useTargetsMutation,
-  useUpsertHoldingMutation,
   useWhatIfMutation,
 } from "@/api/mutations";
 import {
@@ -58,7 +51,6 @@ type TargetRow = components["schemas"]["TargetRow"];
 type OptimizerRow = components["schemas"]["OptimizerRow"];
 
 const PIE_COLORS = ["#22c55e", "#38bdf8", "#f59e0b", "#a78bfa", "#f43f5e", "#14b8a6", "#eab308"];
-const SIDES = ["buy", "sell", "deposit", "withdraw", "dividend", "fee"] as const;
 
 export const Route = createFileRoute("/portfolio")({
   component: PortfolioPage,
@@ -212,33 +204,8 @@ function OverviewTab() {
 function HoldingsTab() {
   const meta = useMetaQuery();
   const holdings = useHoldingsQuery();
-  const upsert = useUpsertHoldingMutation();
-  const remove = useDeleteHoldingMutation();
-  const cash = useCashMutation();
-  const importHoldings = useImportHoldingsMutation();
   const brokerSync = useBrokerSyncMutation();
-  const [symbol, setSymbol] = useState("");
-  const [shares, setShares] = useState("");
-  const [avgCost, setAvgCost] = useState("");
-  const [cashValue, setCashValue] = useState("");
-
-  useEffect(() => {
-    if (holdings.data) setCashValue(String(holdings.data.valuation.cash));
-  }, [holdings.data]);
-
-  function submitHolding(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    upsert.mutate({
-      symbol,
-      shares: Number(shares),
-      avg_cost: avgCost.trim() ? Number(avgCost) : null,
-    });
-  }
-
-  function submitCash(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    cash.mutate({ cash: Number(cashValue) });
-  }
+  const lastSync = brokerSync.data?.last_sync ?? meta.data?.last_broker_sync ?? "n/a";
 
   return (
     <div className="space-y-5">
@@ -246,56 +213,34 @@ function HoldingsTab() {
       {holdings.error ? <ErrorBlock error={holdings.error} onRetry={() => void holdings.refetch()} /> : null}
       {holdings.data ? (
         <>
-          <Panel title="Holdings">
-            <HoldingsTable holdings={holdings.data.valuation.holdings} onRemove={(s) => remove.mutate(s)} removing={remove.isPending} />
-          </Panel>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Panel title="Add or update">
-              <form className="space-y-2" onSubmit={submitHolding}>
-                <Input value={symbol} onChange={(event) => setSymbol(event.target.value)} placeholder="Symbol" />
-                <Input value={shares} onChange={(event) => setShares(event.target.value)} placeholder="Shares" type="number" step="any" />
-                <Input value={avgCost} onChange={(event) => setAvgCost(event.target.value)} placeholder="Avg cost" type="number" step="any" />
-                <Button type="submit" disabled={upsert.isPending || !symbol || !shares}>
-                  {upsert.isPending ? <Spinner /> : <Save />}
-                  Save holding
-                </Button>
-              </form>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Panel title="Total value">
+              <div className="text-2xl font-semibold">{fmtCap(holdings.data.valuation.total_with_cash)}</div>
             </Panel>
             <Panel title="Cash">
-              <form className="space-y-2" onSubmit={submitCash}>
-                <Input value={cashValue} onChange={(event) => setCashValue(event.target.value)} type="number" step="any" />
-                <Button type="submit" disabled={cash.isPending}>
-                  {cash.isPending ? <Spinner /> : <Save />}
-                  Save cash
-                </Button>
-              </form>
+              <div className="text-2xl font-semibold">{fmtCap(holdings.data.valuation.cash)}</div>
+              <p className="text-sm text-muted-foreground">{pct(holdings.data.valuation.cash_pct)}</p>
             </Panel>
-            <Panel title="Import and sync">
+            <Panel title="Broker sync">
               <div className="space-y-3">
-                <Input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0];
-                    if (file) importHoldings.mutate(file);
-                  }}
-                />
-                {holdings.data.import_summary ? <ImportSummaryView summary={holdings.data.import_summary} /> : null}
                 {meta.data?.broker_sync_configured ? (
                   <Button variant="outline" disabled={brokerSync.isPending} onClick={() => brokerSync.mutate()}>
                     {brokerSync.isPending ? <Spinner /> : <Download />}
-                    Broker sync
+                    Sync
                   </Button>
-                ) : null}
-                {brokerSync.data ? (
-                  <div className="text-sm text-muted-foreground">
-                    Last sync {brokerSync.data.last_sync ?? "n/a"}; imported {fmtNum(brokerSync.data.result.imported_activities)} activities.
-                  </div>
-                ) : null}
+                ) : (
+                  <p className="text-sm text-muted-foreground">Not configured.</p>
+                )}
+                <div className="text-sm text-muted-foreground">
+                  Last sync {lastSync}
+                  {brokerSync.data ? `; imported ${fmtNum(brokerSync.data.result.imported_activities)} activities` : ""}
+                </div>
               </div>
             </Panel>
           </div>
+          <Panel title="Holdings">
+            <HoldingsTable holdings={holdings.data.valuation.holdings} />
+          </Panel>
         </>
       ) : null}
     </div>
@@ -304,25 +249,6 @@ function HoldingsTab() {
 
 function TransactionsTab() {
   const transactions = useTransactionsQuery();
-  const add = useAddTransactionMutation();
-  const remove = useDeleteTransactionMutation();
-  const importTransactions = useImportTransactionsMutation();
-  const [side, setSide] = useState<(typeof SIDES)[number]>("buy");
-  const [form, setForm] = useState({ ts: new Date().toISOString().slice(0, 10), symbol: "", shares: "", price: "", amount: "", note: "" });
-  const derivedAmount = side === "buy" || side === "sell" ? Number(form.shares || 0) * Number(form.price || 0) : Number(form.amount || 0);
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    add.mutate({
-      ts: form.ts,
-      side,
-      symbol: form.symbol || null,
-      shares: form.shares ? Number(form.shares) : null,
-      price: form.price ? Number(form.price) : null,
-      amount: side === "buy" || side === "sell" ? null : Number(form.amount),
-      note: form.note,
-    });
-  }
 
   return (
     <div className="space-y-5">
@@ -345,45 +271,6 @@ function TransactionsTab() {
             </Panel>
           </div>
 
-          <Panel title="Add transaction">
-            <form className="grid gap-2 md:grid-cols-4" onSubmit={submit}>
-              <Input type="date" value={form.ts} onChange={(event) => setForm({ ...form, ts: event.target.value })} />
-              <Select value={side} onValueChange={(value) => setSide(value as (typeof SIDES)[number])}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SIDES.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {value}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input placeholder="Symbol" value={form.symbol} onChange={(event) => setForm({ ...form, symbol: event.target.value })} />
-              <Input placeholder="Shares" type="number" step="any" value={form.shares} onChange={(event) => setForm({ ...form, shares: event.target.value })} />
-              <Input placeholder="Price" type="number" step="any" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} />
-              <Input placeholder="Amount" type="number" step="any" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
-              <Input placeholder="Note" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
-              <Button type="submit" disabled={add.isPending}>
-                {add.isPending ? <Spinner /> : <Plus />}
-                Add ({fmtCap(derivedAmount)})
-              </Button>
-            </form>
-          </Panel>
-
-          <Panel title="CSV import">
-            <Input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                if (file) importTransactions.mutate(file);
-              }}
-            />
-            {transactions.data.import_summary ? <ImportSummaryView summary={transactions.data.import_summary} /> : null}
-          </Panel>
-
           <Panel title="Ledger">
             <div className="overflow-x-auto">
               <Table>
@@ -397,7 +284,6 @@ function TransactionsTab() {
                     <TableHead>Amount</TableHead>
                     <TableHead>Realized P/L</TableHead>
                     <TableHead>Note</TableHead>
-                    <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -411,13 +297,6 @@ function TransactionsTab() {
                       <TableCell>{fmtCap(txn.amount)}</TableCell>
                       <TableCell>{fmtCap(txn.realized_pl)}</TableCell>
                       <TableCell>{txn.note}</TableCell>
-                      <TableCell>
-                        {txn.id ? (
-                          <Button size="icon-sm" variant="ghost" disabled={remove.isPending} onClick={() => remove.mutate(txn.id ?? 0)}>
-                            <Trash2 />
-                          </Button>
-                        ) : null}
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -664,7 +543,7 @@ function AnalyticsTab() {
   );
 }
 
-function HoldingsTable({ holdings, onRemove, removing }: { holdings: HoldingValuation[]; onRemove: (symbol: string) => void; removing: boolean }) {
+function HoldingsTable({ holdings }: { holdings: HoldingValuation[] }) {
   return (
     <div className="overflow-x-auto">
       <Table>
@@ -677,7 +556,6 @@ function HoldingsTable({ holdings, onRemove, removing }: { holdings: HoldingValu
             <TableHead>Weight</TableHead>
             <TableHead>Avg cost</TableHead>
             <TableHead>P/L</TableHead>
-            <TableHead></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -695,11 +573,6 @@ function HoldingsTable({ holdings, onRemove, removing }: { holdings: HoldingValu
               <TableCell>{fmtCap(holding.avg_cost)}</TableCell>
               <TableCell>
                 {fmtCap(holding.unrealized_pl)} {holding.unrealized_pl_pct == null ? "" : `(${pct(holding.unrealized_pl_pct)})`}
-              </TableCell>
-              <TableCell>
-                <Button size="icon-sm" variant="ghost" disabled={removing} onClick={() => onRemove(holding.symbol)}>
-                  <Trash2 />
-                </Button>
               </TableCell>
             </TableRow>
           ))}
@@ -873,16 +746,6 @@ function SimpleTable({ headers, rows }: { headers: string[]; rows: string[][] })
           )}
         </TableBody>
       </Table>
-    </div>
-  );
-}
-
-function ImportSummaryView({ summary }: { summary: components["schemas"]["ImportSummary"] }) {
-  return (
-    <div className="mt-3 rounded-md border border-border p-3 text-sm">
-      <div>Imported {fmtNum(summary.imported)}</div>
-      <div className="text-muted-foreground">Skipped {fmtNum(summary.skipped.length)}</div>
-      {summary.skipped.length ? <div className="mt-1 text-xs text-muted-foreground">{summary.skipped.join("; ")}</div> : null}
     </div>
   );
 }

@@ -9,7 +9,7 @@ from math import isfinite
 from typing import Literal
 
 import anyio
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -34,7 +34,7 @@ from ..portfolio.decision_support import (
     compute_regime_signal,
     suggest_position_size,
 )
-from ..portfolio.holdings import PortfolioValuation, remove_holding, upsert_holding, value_holdings
+from ..portfolio.holdings import PortfolioValuation, value_holdings
 from ..portfolio.optimize import Holding, NoDataError, OptimizeRequest, OptimizeResult, optimize
 from ..portfolio.performance import BACKTEST_CAVEAT, PerformanceMetrics, compute_performance, tearsheet_html
 from ..portfolio.plan import (
@@ -51,16 +51,13 @@ from ..portfolio.tax import TaxSignals, compute_tax_signals
 from ..portfolio.transactions import (
     ReturnsSummary,
     Transaction,
-    apply_transaction,
     compute_returns,
-    delete_transaction,
     init_transactions_db,
     list_transactions,
 )
 from ..portfolio.twr import TWRSummary, compute_twr_summary
 from ..profiles import PENNY_PRICE_MAX, PROFILES
 from ..schemas import Confidence, DiscoveryResult, ResearchResult
-from .imports import CsvImportError, ImportSummary, import_holdings_csv, import_transactions_csv
 
 logger = logging.getLogger(__name__)
 
@@ -151,34 +148,12 @@ class PortfolioSummary(BaseModel):
 
 class HoldingsResponse(BaseModel):
     valuation: PortfolioValuation
-    import_summary: ImportSummary | None = None
-
-
-class HoldingUpdate(BaseModel):
-    symbol: str
-    shares: float
-    avg_cost: float | None = None
-
-
-class CashUpdate(BaseModel):
-    cash: float
 
 
 class TransactionsResponse(BaseModel):
     valuation: PortfolioValuation
     returns: ReturnsSummary
     transactions: list[Transaction]
-    import_summary: ImportSummary | None = None
-
-
-class TransactionCreate(BaseModel):
-    ts: str
-    side: str
-    symbol: str | None = None
-    shares: float | None = None
-    price: float | None = None
-    amount: float | None = None
-    note: str = ""
 
 
 class TargetRow(BaseModel):
@@ -297,20 +272,17 @@ def _invalid(message: str) -> HTTPException:
     return _api_error(400, "invalid_input", message)
 
 
-async def _holdings_response(import_summary: ImportSummary | None = None) -> HoldingsResponse:
-    return HoldingsResponse(valuation=await value_holdings(), import_summary=import_summary)
+async def _holdings_response() -> HoldingsResponse:
+    return HoldingsResponse(valuation=await value_holdings())
 
 
-async def _transactions_response(
-    import_summary: ImportSummary | None = None,
-) -> TransactionsResponse:
+async def _transactions_response() -> TransactionsResponse:
     init_transactions_db()
     valuation = await value_holdings()
     return TransactionsResponse(
         valuation=valuation,
         returns=compute_returns(valuation),
         transactions=list_transactions(limit=20),
-        import_summary=import_summary,
     )
 
 
@@ -483,45 +455,6 @@ async def holdings() -> HoldingsResponse:
     return await _holdings_response()
 
 
-@router.put("/portfolio/holdings", response_model=HoldingsResponse)
-async def holdings_put(request: HoldingUpdate) -> HoldingsResponse:
-    sym = request.symbol.strip().upper()
-    if not sym:
-        raise _invalid("symbol must be non-empty")
-    if not isfinite(request.shares):
-        raise _invalid("shares must be a finite number")
-    if request.avg_cost is not None and not isfinite(request.avg_cost):
-        raise _invalid("avg_cost must be a finite number")
-    upsert_holding(sym, request.shares, request.avg_cost)
-    return await _holdings_response()
-
-
-@router.delete("/portfolio/holdings/{symbol}", response_model=HoldingsResponse)
-async def holdings_delete(symbol: str) -> HoldingsResponse:
-    remove_holding(symbol.strip().upper())
-    return await _holdings_response()
-
-
-@router.put("/portfolio/cash", response_model=HoldingsResponse)
-async def cash_put(request: CashUpdate) -> HoldingsResponse:
-    if not isfinite(request.cash):
-        raise _invalid("cash must be a finite number")
-    try:
-        db.set_cash(request.cash)
-    except ValueError as e:
-        raise _invalid(str(e)) from e
-    return await _holdings_response()
-
-
-@router.post("/portfolio/holdings/import", response_model=HoldingsResponse)
-async def holdings_import(file: UploadFile = File(...)) -> HoldingsResponse:
-    try:
-        summary = import_holdings_csv(await file.read())
-        return await _holdings_response(summary)
-    except CsvImportError as e:
-        raise _invalid(str(e)) from e
-
-
 @router.get("/portfolio/transactions", response_model=TransactionsResponse)
 async def transactions() -> TransactionsResponse:
     try:
@@ -529,57 +462,6 @@ async def transactions() -> TransactionsResponse:
     except Exception as e:
         logger.exception("portfolio transactions failed")
         raise _api_error(500, "internal", "Transactions failed — see server logs.") from e
-
-
-@router.post("/portfolio/transactions", response_model=TransactionsResponse)
-async def transaction_add(request: TransactionCreate) -> TransactionsResponse:
-    try:
-        side_clean = request.side.strip().lower()
-        parsed_amount = (
-            float(request.shares or 0) * float(request.price or 0)
-            if side_clean in {"buy", "sell"}
-            else float(request.amount)
-        )
-        apply_transaction(
-            Transaction(
-                ts=request.ts.strip(),
-                side=side_clean,
-                symbol=request.symbol.strip().upper() if request.symbol else None,
-                shares=request.shares,
-                price=request.price,
-                amount=parsed_amount,
-                realized_pl=None,
-                note=request.note.strip(),
-            )
-        )
-        return await _transactions_response()
-    except (TypeError, ValueError) as e:
-        raise _invalid(str(e)) from e
-    except Exception as e:
-        logger.exception("portfolio transaction add failed")
-        raise _api_error(500, "internal", "Transaction failed — see server logs.") from e
-
-
-@router.delete("/portfolio/transactions/{txn_id}", response_model=TransactionsResponse)
-async def transaction_delete(txn_id: int) -> TransactionsResponse:
-    try:
-        delete_transaction(txn_id)
-        return await _transactions_response()
-    except Exception as e:
-        logger.exception("portfolio transaction delete failed")
-        raise _api_error(500, "internal", "Transaction delete failed — see server logs.") from e
-
-
-@router.post("/portfolio/transactions/import", response_model=TransactionsResponse)
-async def transactions_import(file: UploadFile = File(...)) -> TransactionsResponse:
-    try:
-        summary = import_transactions_csv(await file.read())
-        return await _transactions_response(summary)
-    except CsvImportError as e:
-        raise _invalid(str(e)) from e
-    except Exception as e:
-        logger.exception("portfolio transaction import failed")
-        raise _api_error(500, "internal", "Transaction import failed — see server logs.") from e
 
 
 @router.get("/portfolio/targets", response_model=TargetsResponse)

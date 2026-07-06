@@ -12,17 +12,16 @@ from app.llm.pipeline import InsufficientDataError
 from app.portfolio import holdings as holdings_mod
 from app.portfolio.decision_support import CorrelationInsight, PositionSizeGuidance, RegimeSignal
 from app.portfolio.holdings import (
-    Holding,
     HoldingValuation,
     PortfolioValuation,
     init_holdings_db,
-    list_holdings,
+    upsert_holding,
 )
 from app.portfolio.optimize import FrontierPoint, NoDataError, OptimizeResult, PortfolioMetrics
 from app.portfolio.performance import PerformanceMetrics
 from app.portfolio.plan import Target, init_targets_db, list_targets
 from app.portfolio.snapshots import init_snapshots_db, list_snapshots
-from app.portfolio.transactions import init_transactions_db, list_transactions
+from app.portfolio.transactions import init_transactions_db
 from app.portfolio.twr import TWRSummary
 from app.schemas import (
     Candidate,
@@ -174,7 +173,7 @@ def _optimizer_result(symbols: list[str]) -> OptimizeResult:
     )
 
 
-def test_meta_watchlist_holdings_cash_and_portfolio(client: TestClient):
+def test_meta_watchlist_holdings_and_portfolio(client: TestClient):
     meta = client.get("/api/meta")
     assert meta.status_code == 200
     assert isinstance(meta.json()["examples"], list)
@@ -187,20 +186,10 @@ def test_meta_watchlist_holdings_cash_and_portfolio(client: TestClient):
     assert removed.status_code == 200
     assert removed.json() == {"symbol": "AAPL", "watched": False}
 
-    response = client.put(
-        "/api/portfolio/holdings",
-        json={"symbol": "aaa", "shares": 2, "avg_cost": 5},
-    )
-    assert response.status_code == 200
-    assert response.json()["valuation"]["holdings"][0]["symbol"] == "AAA"
-    assert list_holdings() == [Holding(symbol="AAA", shares=2, avg_cost=5)]
+    upsert_holding("AAA", 2, 5)
     holdings_get = client.get("/api/portfolio/holdings")
     assert holdings_get.status_code == 200
     assert holdings_get.json()["valuation"]["holdings"][0]["symbol"] == "AAA"
-
-    response = client.put("/api/portfolio/cash", json={"cash": 25})
-    assert response.status_code == 200
-    assert response.json()["valuation"]["cash"] == 25
 
     portfolio = client.get("/api/portfolio")
     assert portfolio.status_code == 200
@@ -209,10 +198,6 @@ def test_meta_watchlist_holdings_cash_and_portfolio(client: TestClient):
     assert payload["allocation"]
     assert payload["disclaimer"]
     assert len(list_snapshots()) == 1
-
-    deleted = client.delete("/api/portfolio/holdings/aaa")
-    assert deleted.status_code == 200
-    assert deleted.json()["valuation"]["holdings"] == []
 
 
 def test_discover_and_research_happy_paths(monkeypatch: pytest.MonkeyPatch, client: TestClient):
@@ -302,99 +287,10 @@ def test_research_error_envelopes(monkeypatch: pytest.MonkeyPatch, client: TestC
 
 def test_invalid_inputs_return_400(client: TestClient):
     assert client.post("/api/discover", json={"goal": "   "}).status_code == 400
-    response = client.put("/api/portfolio/holdings", json={"symbol": " ", "shares": 1})
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "invalid_input"
-
-    response = client.put("/api/portfolio/cash", json={"cash": "nan"})
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "invalid_input"
-
-
-def test_csv_imports_valid_and_fatal_errors(client: TestClient):
-    response = client.post(
-        "/api/portfolio/holdings/import",
-        files={"file": ("holdings.csv", b"symbol,shares,avg_cost\naapl,2,5\nbad,nope,1\n")},
-    )
-    assert response.status_code == 200
-    assert response.json()["import_summary"] == {
-        "imported": 1,
-        "skipped": ["line 3: bad shares 'nope'"],
-    }
-
-    response = client.post(
-        "/api/portfolio/transactions/import",
-        files={
-            "file": (
-                "txns.csv",
-                b"date,side,symbol,shares,price,amount,note\n"
-                b"2026-01-01,deposit,,,,1000,seed\n",
-            )
-        },
-    )
-    assert response.status_code == 200
-    assert response.json()["import_summary"]["imported"] == 1
-
-    response = client.post(
-        "/api/portfolio/holdings/import",
-        files={"file": ("big.csv", b"symbol,shares\n" + b"a,1\n" * 30_000)},
-    )
-    assert response.status_code == 400
-    assert "100 KB" in response.json()["detail"]["message"]
-
-    response = client.post(
-        "/api/portfolio/transactions/import",
-        files={"file": ("bad.csv", b"symbol,amount\nAAA,1\n")},
-    )
-    assert response.status_code == 400
-    assert "date and side" in response.json()["detail"]["message"]
-
-
-def test_transactions_create_delete_and_validation(client: TestClient):
-    deposit = client.post(
-        "/api/portfolio/transactions",
-        json={"ts": "2026-01-01", "side": "deposit", "amount": 1000},
-    )
-    assert deposit.status_code == 200
-
-    buy = client.post(
-        "/api/portfolio/transactions",
-        json={
-            "ts": "2026-01-02",
-            "side": "BUY",
-            "symbol": "aaa",
-            "shares": 2,
-            "price": 10,
-            "amount": 999999,
-        },
-    )
-    assert buy.status_code == 200
-    txn = buy.json()["transactions"][0]
-    assert txn["side"] == "buy"
-    assert txn["amount"] == 20
-    assert list_transactions()[0].amount == 20
-    txns_get = client.get("/api/portfolio/transactions")
-    assert txns_get.status_code == 200
-    assert txns_get.json()["transactions"][0]["amount"] == 20
-
-    invalid = client.post(
-        "/api/portfolio/transactions",
-        json={"ts": "2026-01-03", "side": "dividend", "symbol": "AAA"},
-    )
-    assert invalid.status_code == 400
-    assert invalid.json()["detail"]["code"] == "invalid_input"
-
-    deleted = client.delete(f"/api/portfolio/transactions/{txn['id']}")
-    assert deleted.status_code == 200
-    assert all(t["id"] != txn["id"] for t in deleted.json()["transactions"])
 
 
 def test_targets_rebalance_whatif_and_pct_conversion(client: TestClient):
-    response = client.put(
-        "/api/portfolio/holdings",
-        json={"symbol": "aaa", "shares": 10, "avg_cost": 5},
-    )
-    assert response.status_code == 200
+    upsert_holding("AAA", 10, 5)
 
     response = client.put(
         "/api/portfolio/targets",

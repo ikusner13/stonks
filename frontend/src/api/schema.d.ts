@@ -116,60 +116,8 @@ export interface paths {
         };
         /** Holdings */
         get: operations["holdings_api_portfolio_holdings_get"];
-        /** Holdings Put */
-        put: operations["holdings_put_api_portfolio_holdings_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portfolio/holdings/{symbol}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
         put?: never;
         post?: never;
-        /** Holdings Delete */
-        delete: operations["holdings_delete_api_portfolio_holdings__symbol__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portfolio/cash": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Cash Put */
-        put: operations["cash_put_api_portfolio_cash_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portfolio/holdings/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Holdings Import */
-        post: operations["holdings_import_api_portfolio_holdings_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -186,42 +134,7 @@ export interface paths {
         /** Transactions */
         get: operations["transactions_api_portfolio_transactions_get"];
         put?: never;
-        /** Transaction Add */
-        post: operations["transaction_add_api_portfolio_transactions_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portfolio/transactions/{txn_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
         post?: never;
-        /** Transaction Delete */
-        delete: operations["transaction_delete_api_portfolio_transactions__txn_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/portfolio/transactions/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Transactions Import */
-        post: operations["transactions_import_api_portfolio_transactions_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -552,23 +465,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/portfolio/holdings/row": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Portfolio Holdings Row */
-        get: operations["portfolio_holdings_row_portfolio_holdings_row_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/portfolio/broker/sync": {
         parameters: {
             query?: never;
@@ -596,59 +492,7 @@ export interface paths {
         /** Portfolio Holdings */
         get: operations["portfolio_holdings_portfolio_holdings_get"];
         put?: never;
-        /** Portfolio Holdings Add */
-        post: operations["portfolio_holdings_add_portfolio_holdings_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/portfolio/holdings/remove/{symbol}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Portfolio Holdings Remove */
-        post: operations["portfolio_holdings_remove_portfolio_holdings_remove__symbol__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/portfolio/cash": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Portfolio Cash Set */
-        post: operations["portfolio_cash_set_portfolio_cash_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/portfolio/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Portfolio Import */
-        post: operations["portfolio_import_portfolio_import_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -665,42 +509,7 @@ export interface paths {
         /** Portfolio Transactions */
         get: operations["portfolio_transactions_portfolio_transactions_get"];
         put?: never;
-        /** Portfolio Transaction Add */
-        post: operations["portfolio_transaction_add_portfolio_transactions_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/portfolio/transactions/delete/{txn_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Portfolio Transaction Delete */
-        post: operations["portfolio_transaction_delete_portfolio_transactions_delete__txn_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/portfolio/transactions/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Portfolio Transactions Import */
-        post: operations["portfolio_transactions_import_portfolio_transactions_import_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -931,85 +740,6 @@ export interface components {
              */
             goal: string;
         };
-        /** Body_holdings_import_api_portfolio_holdings_import_post */
-        Body_holdings_import_api_portfolio_holdings_import_post: {
-            /** File */
-            file: string;
-        };
-        /** Body_portfolio_cash_set_portfolio_cash_post */
-        Body_portfolio_cash_set_portfolio_cash_post: {
-            /**
-             * Cash
-             * @default
-             */
-            cash: string;
-        };
-        /** Body_portfolio_holdings_add_portfolio_holdings_post */
-        Body_portfolio_holdings_add_portfolio_holdings_post: {
-            /**
-             * Symbol
-             * @default
-             */
-            symbol: string;
-            /**
-             * Shares
-             * @default
-             */
-            shares: string;
-            /**
-             * Avg Cost
-             * @default
-             */
-            avg_cost: string;
-        };
-        /** Body_portfolio_import_portfolio_import_post */
-        Body_portfolio_import_portfolio_import_post: {
-            /** File */
-            file: string;
-        };
-        /** Body_portfolio_transaction_add_portfolio_transactions_post */
-        Body_portfolio_transaction_add_portfolio_transactions_post: {
-            /**
-             * Ts
-             * @default
-             */
-            ts: string;
-            /**
-             * Side
-             * @default
-             */
-            side: string;
-            /**
-             * Symbol
-             * @default
-             */
-            symbol: string;
-            /**
-             * Shares
-             * @default
-             */
-            shares: string;
-            /**
-             * Price
-             * @default
-             */
-            price: string;
-            /**
-             * Amount
-             * @default
-             */
-            amount: string;
-            /**
-             * Note
-             * @default
-             */
-            note: string;
-        };
-        /** Body_portfolio_transactions_import_portfolio_transactions_import_post */
-        Body_portfolio_transactions_import_portfolio_transactions_import_post: {
-            /** File */
-            file: string;
-        };
         /** Body_portfolio_whatif_portfolio_whatif_post */
         Body_portfolio_whatif_portfolio_whatif_post: {
             /**
@@ -1017,11 +747,6 @@ export interface components {
              * @default
              */
             amount: string;
-        };
-        /** Body_transactions_import_api_portfolio_transactions_import_post */
-        Body_transactions_import_api_portfolio_transactions_import_post: {
-            /** File */
-            file: string;
         };
         /** BrokerPosition */
         BrokerPosition: {
@@ -1057,11 +782,6 @@ export interface components {
              * @enum {string}
              */
             source: "screener" | "theme";
-        };
-        /** CashUpdate */
-        CashUpdate: {
-            /** Cash */
-            cash: number;
         };
         /** ConfidenceAssessment */
         ConfidenceAssessment: {
@@ -1295,15 +1015,6 @@ export interface components {
             /** Note */
             note: string;
         };
-        /** HoldingUpdate */
-        HoldingUpdate: {
-            /** Symbol */
-            symbol: string;
-            /** Shares */
-            shares: number;
-            /** Avg Cost */
-            avg_cost?: number | null;
-        };
         /** HoldingValuation */
         HoldingValuation: {
             /** Symbol */
@@ -1341,14 +1052,6 @@ export interface components {
         /** HoldingsResponse */
         HoldingsResponse: {
             valuation: components["schemas"]["PortfolioValuation"];
-            import_summary?: components["schemas"]["ImportSummary"] | null;
-        };
-        /** ImportSummary */
-        ImportSummary: {
-            /** Imported */
-            imported: number;
-            /** Skipped */
-            skipped: string[];
         };
         /** Indicator */
         Indicator: {
@@ -2115,33 +1818,12 @@ export interface components {
             /** External Id */
             external_id?: string | null;
         };
-        /** TransactionCreate */
-        TransactionCreate: {
-            /** Ts */
-            ts: string;
-            /** Side */
-            side: string;
-            /** Symbol */
-            symbol?: string | null;
-            /** Shares */
-            shares?: number | null;
-            /** Price */
-            price?: number | null;
-            /** Amount */
-            amount?: number | null;
-            /**
-             * Note
-             * @default
-             */
-            note: string;
-        };
         /** TransactionsResponse */
         TransactionsResponse: {
             valuation: components["schemas"]["PortfolioValuation"];
             returns: components["schemas"]["ReturnsSummary"];
             /** Transactions */
             transactions: components["schemas"]["Transaction"][];
-            import_summary?: components["schemas"]["ImportSummary"] | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -2407,136 +2089,6 @@ export interface operations {
             };
         };
     };
-    holdings_put_api_portfolio_holdings_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HoldingUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HoldingsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    holdings_delete_api_portfolio_holdings__symbol__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                symbol: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HoldingsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cash_put_api_portfolio_cash_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CashUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HoldingsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    holdings_import_api_portfolio_holdings_import_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_holdings_import_api_portfolio_holdings_import_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HoldingsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     transactions_api_portfolio_transactions_get: {
         parameters: {
             query?: never;
@@ -2553,103 +2105,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TransactionsResponse"];
-                };
-            };
-        };
-    };
-    transaction_add_api_portfolio_transactions_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TransactionCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TransactionsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    transaction_delete_api_portfolio_transactions__txn_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                txn_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TransactionsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    transactions_import_api_portfolio_transactions_import_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_transactions_import_api_portfolio_transactions_import_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TransactionsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3156,26 +2611,6 @@ export interface operations {
             };
         };
     };
-    portfolio_holdings_row_portfolio_holdings_row_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": string;
-                };
-            };
-        };
-    };
     portfolio_broker_sync_portfolio_broker_sync_post: {
         parameters: {
             query?: never;
@@ -3216,136 +2651,6 @@ export interface operations {
             };
         };
     };
-    portfolio_holdings_add_portfolio_holdings_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/x-www-form-urlencoded": components["schemas"]["Body_portfolio_holdings_add_portfolio_holdings_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": string;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    portfolio_holdings_remove_portfolio_holdings_remove__symbol__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                symbol: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": string;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    portfolio_cash_set_portfolio_cash_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/x-www-form-urlencoded": components["schemas"]["Body_portfolio_cash_set_portfolio_cash_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": string;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    portfolio_import_portfolio_import_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_portfolio_import_portfolio_import_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": string;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     portfolio_transactions_portfolio_transactions_get: {
         parameters: {
             query?: never;
@@ -3362,103 +2667,6 @@ export interface operations {
                 };
                 content: {
                     "text/html": string;
-                };
-            };
-        };
-    };
-    portfolio_transaction_add_portfolio_transactions_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/x-www-form-urlencoded": components["schemas"]["Body_portfolio_transaction_add_portfolio_transactions_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": string;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    portfolio_transaction_delete_portfolio_transactions_delete__txn_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                txn_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": string;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    portfolio_transactions_import_portfolio_transactions_import_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_portfolio_transactions_import_portfolio_transactions_import_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": string;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
